@@ -152,6 +152,14 @@ def general(tab: str):
         flash(next(iter(errors.values())), "error")
 
     preview = _sample_preview(db, settings) if tab in {"email", "paypal"} else None
+    # Maskierte Vorschau: reicht, um das gespeicherte Passwort wiederzuerkennen,
+    # ohne es offenzulegen. Fuer Gmail-App-Passwoerter sind die letzten vier
+    # Zeichen in aller Regel eindeutig.
+    current_pw = (store.get("SMTP_PASSWORD", "") or "").strip()
+    if current_pw:
+        smtp_password_hint = "*" * 8 + (current_pw[-4:] if len(current_pw) > 4 else current_pw)
+    else:
+        smtp_password_hint = ""
     context = {
         "tab": tab,
         "tabs": TABS,
@@ -163,6 +171,7 @@ def general(tab: str):
         "preview": preview,
         "smtp_password_set": store.has("SMTP_PASSWORD"),
         "smtp_password_from_env": store.is_overridden_by_env("SMTP_PASSWORD"),
+        "smtp_password_hint": smtp_password_hint,
         "secrets_writable": store.writable(),
         "email_configured": is_email_configured(settings),
         "now": local_now(get_tz(settings.timezone)),
@@ -312,6 +321,46 @@ def _handle_save(tab: str, form, settings: Settings, store) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # actions
 # ---------------------------------------------------------------------------
+@bp.route("/smtp/password-reveal", methods=["POST"])
+@setup_required
+@login_required
+def reveal_smtp_password():
+    """Show the stored SMTP password on request.
+
+    Deliberately a POST with a CSRF token: the secret must not end up in the
+    URL, in the browser history or in a prefetch. The value is also written
+    to the audit log, without the secret itself, so that reading it stays
+    traceable.
+
+    The password lives in ``instance/secrets.env`` on the same host, so an
+    administrator able to use this form can read the file directly as root
+    anyway. Hiding it here would not protect anything - it would only make
+    it hard to tell *which* password is currently active.
+    """
+    validate_csrf()
+    db = g.db
+    store = get_store()
+
+    if not store.has("SMTP_PASSWORD"):
+        flash("Es ist kein SMTP-Passwort hinterlegt.", "error")
+        return redirect(url_for("settings.general", tab="smtp"))
+
+    password = store.get("SMTP_PASSWORD", "") or ""
+    audit(
+        db,
+        "smtp.password_reveal",
+        detail=(
+            f"Passwort im Klartext angezeigt, Quelle: "
+            f"{'Umgebungsvariable' if store.is_overridden_by_env('SMTP_PASSWORD') else 'Secrets-Datei'}"
+        ),
+    )
+    return render_template(
+        "settings/smtp_password.html",
+        password=password,
+        from_env=store.is_overridden_by_env("SMTP_PASSWORD"),
+    )
+
+
 @bp.route("/test-mail", methods=["POST"])
 @setup_required
 @login_required

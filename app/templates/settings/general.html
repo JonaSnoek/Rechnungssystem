@@ -286,12 +286,24 @@
               {% else %}
                 <span class="badge badge-neutral">nicht gesetzt</span>
               {% endif %}
+              {% if smtp_password_set and smtp_password_hint %}
+                <br>gespeichert als <span class="mono">{{ smtp_password_hint }}</span>
+              {% endif %}
               {% if not secrets_writable %}
                 <br>Der Secret-Speicher ist nicht beschreibbar &ndash; bitte SMTP_PASSWORD als
                 Umgebungsvariable setzen.
               {% endif %}
             </p>
             {% if smtp_password_set %}
+            <div class="form-actions">
+              <button class="btn btn-sm" type="submit"
+                      formaction="{{ url_for('settings.reveal_smtp_password') }}"
+                      formnovalidate>{{ icon('search') }}<span>Passwort anzeigen</span></button>
+            </div>
+            <p class="hint">
+              Zum &Auml;ndern einfach unten ein neues Passwort eingeben &ndash; es
+              &uuml;berschreibt das gespeicherte. Ein L&ouml;schen ist nicht n&ouml;tig.
+            </p>
             <label class="checkbox">
               <input type="checkbox" name="clear_password" value="1">
               <span>Gespeichertes Passwort loeschen</span>

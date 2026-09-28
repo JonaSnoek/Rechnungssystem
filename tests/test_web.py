@@ -547,6 +547,92 @@ class TestSmtpKonfiguration:
 
 
 # ---------------------------------------------------------------------------
+# SMTP-Passwort anzeigen
+# ---------------------------------------------------------------------------
+class TestSmtpPasswortAnzeigen:
+    URL = "/einstellungen/smtp/password-reveal"
+
+    def _set_password(self, admin, csrf, value):
+        admin.post("/einstellungen/smtp", data={
+            "csrf_token": csrf("/einstellungen/smtp"),
+            "smtp_host": "smtp.gmail.com", "smtp_port": "587",
+            "smtp_encryption": "starttls",
+            "smtp_username": "konto@gmail.com",
+            "smtp_password": value,
+            "mail_from_name": "Verzehrabrechnung",
+            "mail_from_address": "konto@gmail.com",
+        }, follow_redirects=True)
+
+    def test_anzeige_nur_per_post(self, admin, csrf):
+        """Ein GET darf das Passwort niemals ausliefern."""
+        self._set_password(admin, csrf, "abcd efgh ijkl mnop")
+        r = admin.get(self.URL)
+        assert r.status_code == 405
+        assert "abcd" not in r.get_data(as_text=True)
+
+    def test_ohne_csrf_wird_abgewiesen(self, admin, csrf, app):
+        self._set_password(admin, csrf, "abcd efgh ijkl mnop")
+        r = admin.post(self.URL, data={}, follow_redirects=False)
+        assert r.status_code in (400, 403, 302)
+        if r.status_code == 302:
+            # Umgeleitet heisst: nicht aufgedeckt, nur Fehlermeldung.
+            assert "abcd" not in r.get_data(as_text=True)
+
+    def test_anzeige_zeigt_gespeichertes_passwort(self, admin, csrf):
+        self._set_password(admin, csrf, "qdxkjsdkemuexahj")
+        r = admin.post(self.URL, data={
+            "csrf_token": csrf("/einstellungen/smtp")}, follow_redirects=True)
+        assert r.status_code == 200
+        assert "qdxkjsdkemuexahj" in r.get_data(as_text=True)
+
+    def test_anzeige_wird_im_audit_protokolliert(self, admin, csrf, app):
+        self._set_password(admin, csrf, "abcd efgh ijkl mnop")
+        admin.post(self.URL, data={
+            "csrf_token": csrf("/einstellungen/smtp")}, follow_redirects=True)
+        with app.app_context():
+            from app.db import get_session
+            from sqlalchemy import select
+            from app.models import AuditLog
+            rows = get_session().execute(
+                select(AuditLog).where(AuditLog.action == "smtp.password_reveal")
+            ).scalars().all()
+            assert rows, "Anzeigen des Passworts muss protokolliert werden"
+            # Der Audit-Eintrag darf das Passwort selbst nicht enthalten.
+            assert "abcdefghijklmnop" not in (rows[-1].detail or "")
+
+    def test_ohne_passwort_keine_anzeige(self, admin, csrf):
+        r = admin.post(self.URL, data={
+            "csrf_token": csrf("/einstellungen/smtp")}, follow_redirects=True)
+        assert r.status_code == 200
+        assert "kein SMTP-Passwort" in r.get_data(as_text=True)
+
+    def test_maskierte_vorschau_zeigt_nur_letzte_vier(self, admin, csrf):
+        self._set_password(admin, csrf, "abcd efgh ijkl mnop")
+        text = admin.get("/einstellungen/smtp").get_data(as_text=True)
+        assert "mnop" in text          # letzte vier Zeichen sind sichtbar
+        assert "abcdefgh" not in text  # der Rest nicht
+
+    def test_neues_passwort_ueberschreibt_ohne_loeschen(self, admin, csrf):
+        self._set_password(admin, csrf, "erstes_ABCD")
+        self._set_password(admin, csrf, "zweites_WXYZ")
+        # Die Vorschau zeigt die letzten vier Zeichen - damit ist erkennbar,
+        # dass der neue Wert den alten ersetzt hat.
+        text = admin.get("/einstellungen/smtp").get_data(as_text=True)
+        assert "WXYZ" in text
+        assert "ABCD" not in text
+        r = admin.post(self.URL, data={
+            "csrf_token": csrf("/einstellungen/smtp")}, follow_redirects=True)
+        shown = r.get_data(as_text=True)
+        assert "zweites_WXYZ" in shown
+        assert "erstes_ABCD" not in shown
+
+    def test_nicht_angemeldet_kommt_nicht_durch(self, app, client):
+        r = client.post(self.URL, data={})
+        assert r.status_code in (302, 401, 403)
+        assert "Passwort" not in r.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
 # Abrechnung ueber HTTP
 # ---------------------------------------------------------------------------
 class TestAbrechnungHttp:
