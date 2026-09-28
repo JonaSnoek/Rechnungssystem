@@ -28,11 +28,18 @@ def normalize_password(value: str | None) -> str:
 
 
 def smtp_config_from_settings(
-    settings: Settings, secrets: SecretsStore | None = None, timeout: int = 30
+    settings: Settings, secrets: SecretsStore, timeout: int = 30
 ) -> SmtpConfig:
-    password = ""
-    if secrets is not None:
-        password = normalize_password(secrets.get("SMTP_PASSWORD", ""))
+    """Build the SMTP config from the settings table plus the secrets store.
+
+    ``secrets`` is deliberately required. It used to default to ``None``, and
+    a call without it silently produced an **empty password** instead of
+    failing. The test-mail view passed the store while the billing path did
+    not, so "Test-E-Mail senden" worked and every real invoice failed with
+    Gmail's ``5.7.8 BadCredentials``. Making the argument mandatory turns that
+    class of bug into an obvious TypeError.
+    """
+    password = normalize_password(secrets.get("SMTP_PASSWORD", ""))
     return SmtpConfig(
         host=(settings.get("smtp_host") or "").strip(),
         port=settings.smtp_port,
@@ -46,9 +53,7 @@ def smtp_config_from_settings(
     )
 
 
-def build_mailer(
-    settings: Settings, secrets: SecretsStore | None = None, timeout: int = 30
-) -> Mailer:
+def build_mailer(settings: Settings, secrets: SecretsStore, timeout: int = 30) -> Mailer:
     return Mailer(smtp_config_from_settings(settings, secrets, timeout))
 
 

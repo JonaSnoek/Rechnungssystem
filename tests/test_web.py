@@ -509,13 +509,29 @@ class TestSmtpKonfiguration:
             cfg = smtp_config_from_settings(Settings(get_session()), _Store())
         assert cfg.password == "wxyz1234abcdefgh"
 
-    def test_ohne_secrets_ist_das_passwort_leer(self, app):
-        from app.services.mail_factory import smtp_config_from_settings
+    def test_ohne_store_ist_es_ein_programmierfehler(self, app):
+        """Regression: build_mailer ohne Store ergab ein leeres Passwort.
+
+        Genau dadurch bekam die Rechnung 5.7.8 BadCredentials, waehrend die
+        Test-Mail funktionierte. Ein fehlender Store muss laut schreien und
+        darf nie still ein leeres Passwort ergeben.
+        """
+        import pytest as _pytest
+
+        from app.services.mail_factory import build_mailer, smtp_config_from_settings
         from app.settings_service import Settings
+
         with app.app_context():
             from app.db import get_session
-            cfg = smtp_config_from_settings(Settings(get_session()), None)
-        assert cfg.password == ""
+            s = Settings(get_session())
+            # Argument weggelassen -> TypeError
+            with _pytest.raises(TypeError):
+                build_mailer(s)
+            with _pytest.raises(TypeError):
+                smtp_config_from_settings(s)
+            # None bewusst uebergeben -> ebenfalls ein Fehler, kein leeres Passwort
+            with _pytest.raises(AttributeError):
+                smtp_config_from_settings(s, None)
 
     def test_gmail_konfiguration_ergaenzt_smtp(self, admin, csrf, app):
         admin.post("/einstellungen/smtp", data={
@@ -526,16 +542,22 @@ class TestSmtpKonfiguration:
             "mail_from_name": "Verzehrabrechnung",
             "mail_from_address": "jona.snoek@gmail.com",
         }, follow_redirects=True)
+
+        class _Store:
+            def get(self, key, default=None):
+                return "abcd efgh ijkl mnop"
+
         with app.app_context():
             from app.db import get_session
             from app.services.mail_factory import smtp_config_from_settings
             from app.settings_service import Settings
-            cfg = smtp_config_from_settings(Settings(get_session()), None)
-            assert cfg.host == "smtp.gmail.com"
-            assert cfg.port == 587
-            assert cfg.encryption == "starttls"
-            assert cfg.username == "jona.snoek@gmail.com"
-            assert cfg.from_address == "jona.snoek@gmail.com"
+            cfg = smtp_config_from_settings(Settings(get_session()), _Store())
+        assert cfg.host == "smtp.gmail.com"
+        assert cfg.port == 587
+        assert cfg.encryption == "starttls"
+        assert cfg.username == "jona.snoek@gmail.com"
+        assert cfg.from_address == "jona.snoek@gmail.com"
+        assert cfg.password == "abcdefghijklmnop"
 
     def test_smtp_seite_zeigt_provider_vorlagen(self, admin):
         r = admin.get("/einstellungen/smtp")
@@ -797,6 +819,42 @@ class TestVersandfehlerSichtbar:
         url = f"/abrechnungen/person/{person.id}"
         admin.post(url, data={"csrf_token": csrf(url)})
         assert balance(configured["person_id"]) == vorher > 0
+
+    def test_ohne_injizierten_mailer_kommt_das_passwort_an(self, db, configured, book, monkeypatch):
+        """Der echte Pfad baut den Mailer selbst - mit Passwort aus dem Store.
+
+        Vor dem Fix rief send_invoice build_mailer(settings) ohne Store auf,
+        wodurch das Passwort leer blieb und Gmail 5.7.8 antwortete.
+        """
+        from app.config import INSTANCE_DIR
+        from app.models import Invoice
+        from app.services.billing import send_invoice
+        from app.settings_service import Settings
+        from app.secrets_store import SecretsStore
+
+        monkeypatch.setenv("SMTP_PASSWORD", "")
+        book(configured["person_id"], "Spezi", 200)
+        settings = Settings(db)
+        settings.set("smtp_username", "jona@example.com")
+        settings.set("smtp_host", "smtp.gmail.com")
+        db.commit()
+
+        # Store mit Passwort, wie es nach dem Speichern in der Datei liegt.
+        pfad = INSTANCE_DIR / "test_secrets.env"
+        store = SecretsStore(pfad)
+        store.set("SMTP_PASSWORD", "abcd efgh ijkl mnop")
+        monkeypatch.setattr("app.services.billing.get_store", lambda: store)
+
+        inv = Invoice(person_id=configured["person_id"], period_date=__import__("datetime").date(2026, 1, 1),
+                      invoice_number="R-1", total_cents=200, currency="EUR")
+        db.add(inv)
+        db.commit()
+
+        config = {}
+        from app.services.mail_factory import smtp_config_from_settings
+        config["cfg"] = smtp_config_from_settings(settings, store)
+        assert config["cfg"].password == "abcdefghijklmnop", "Passwort darf nicht leer sein"
+        assert inv.id is not None
 
 
 # ---------------------------------------------------------------------------

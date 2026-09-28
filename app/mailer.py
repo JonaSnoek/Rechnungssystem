@@ -110,6 +110,11 @@ class Mailer:
     ) -> SendResult:
         if not to or "@" not in to:
             return SendResult(ok=False, error="Ungueltige Empfaengeradresse")
+        if self.config.username and not self.config.password:
+            return SendResult(
+                ok=False,
+                error="SMTP-Passwort fehlt (nicht hinterlegt)",
+            )
 
         message = EmailMessage()
         message["Subject"] = subject

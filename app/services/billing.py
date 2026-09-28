@@ -37,6 +37,7 @@ from ..models import (
 )
 from ..money import MoneyError
 from ..paypal import PayPalLinkError, build_link
+from ..secrets_store import get_store
 from ..settings_service import (
     EMAIL_BODY_HTML_TEMPLATE,
     EMAIL_BODY_TEXT_TEMPLATE,
@@ -472,7 +473,7 @@ def send_invoice(
 
     result = SendResult(ok=False, error="nicht versendet")
     for attempt in range(1, max(1, retry_attempts) + 1):
-        active = mailer or build_mailer(settings)
+        active = mailer or build_mailer(settings, get_store())
         # re-validate the link right before sending
         try:
             link = build_link(
