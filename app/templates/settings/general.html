@@ -172,6 +172,78 @@
   {% elif tab == 'smtp' %}
   <div class="grid grid-sidebar">
     <div class="card">
+      <div class="card-head">{{ icon('mail') }}<h2>Provider-Einstellungen</h2></div>
+      <div class="card-body">
+        <p class="hint">Diese Vorlagen funktionieren mit der getesteten Konfiguration.
+        Server und Port lassen sich unten ueberschreiben.</p>
+
+        <table class="table">
+          <thead><tr><th>Anbieter</th><th>Server</th><th>Port</th><th>Verschluesselung</th><th>Benutzername</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Gmail</strong></td>
+              <td class="mono">smtp.gmail.com</td>
+              <td>587</td>
+              <td>STARTTLS</td>
+              <td>volle Gmail-Adresse</td>
+            </tr>
+            <tr>
+              <td>Gmail (alternativ)</td>
+              <td class="mono">smtp.gmail.com</td>
+              <td>465</td>
+              <td>SSL/TLS</td>
+              <td>volle Gmail-Adresse</td>
+            </tr>
+            <tr>
+              <td>GMX</td>
+              <td class="mono">mail.gmx.com</td>
+              <td>587</td>
+              <td>STARTTLS</td>
+              <td>volle GMX-Adresse</td>
+            </tr>
+            <tr>
+              <td>Outlook / Microsoft 365</td>
+              <td class="mono">smtp.office365.com</td>
+              <td>587</td>
+              <td>STARTTLS</td>
+              <td>volle Adresse</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="notice notice-info">
+          {{ icon('alert') }}
+          <div>
+            <p><strong>Gmail: so geht es</strong></p>
+            <ol>
+              <li>In Google Konto &rarr; Sicherheit &rarr; <strong>2-Schritt-Verifizierung aktivieren</strong>.
+                  Ohne sie laesst sich kein App-Passwort erzeugen.</li>
+              <li>Danach Google Konto &rarr; Sicherheit &rarr; <strong>App-Passw&ouml;rter</strong>
+                  &rarr; neues App-Passwort f&uuml;r Gmail erzeugen.</li>
+              <li>Es werden 16 Zeichen in Vierergruppen angezeigt. Leerzeichen sind
+                  egal &ndash; eingef&uuml;gte Leerzeichen werden entfernt.</li>
+              <li>Als Benutzername die <strong>volle Gmail-Adresse</strong> eintragen,
+                  nicht nur den Namen davor.</li>
+              <li>Die <strong>Absenderadresse muss identisch</strong> mit der Gmail-Adresse
+                  sein, sonst lehnt Gmail den Versand ab. Kein Alias, keine eigene Domain.</li>
+              <li>Ist in <code>.env</code> die Variable <code>SMTP_PASSWORD</code> gesetzt,
+                  gewinnt sie &ndash; das hier eingetragene Passwort wird ignoriert.
+                  In dem Fall die Zeile aus <code>.env</code> entfernen und den Dienst neu starten.</li>
+            </ol>
+          </div>
+        </div>
+
+        <p class="hint">
+          Ungetestete Fehlerbilder: <em>Authentication failed</em> heisst fast immer
+          2-Schritt-Verifizierung fehlt, das Passwort ist abgelaufen oder die
+          Absenderadresse weicht ab. <em>Connection refused</em> oder ein Timeout
+          heisst: Port oder Verschl&uuml;sselung passen nicht zusammen &ndash;
+          587 geh&ouml;rt zu STARTTLS, 465 zu SSL/TLS.
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-head">{{ icon('mail') }}<h2>SMTP-Server</h2></div>
       <div class="card-body">
         <div class="field-row-3 field-row">

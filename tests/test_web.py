@@ -473,6 +473,80 @@ class TestSettings:
 
 
 # ---------------------------------------------------------------------------
+# SMTP-Konfiguration
+# ---------------------------------------------------------------------------
+class TestSmtpKonfiguration:
+    """Regression: Gmail-App-Passwoerter werden in Vierergruppen angezeigt."""
+
+    @pytest.mark.parametrize(
+        "rohdaten",
+        [
+            "abcd efgh ijkl mnop",       # so zeigt Google es an
+            " abcd efgh ijkl mnop ",     # mit Randleerzeichen
+            "abcdefghijklmnop",          # ohne Leerzeichen
+            "abcd\tefgh\nijkl  mnop",    # verirrte Leerzeichen
+        ],
+    )
+    def test_app_passwort_ohne_leerzeichen(self, rohdaten):
+        from app.services.mail_factory import normalize_password
+        assert normalize_password(rohdaten) == "abcdefghijklmnop"
+
+    @pytest.mark.parametrize("leer", [None, "", "   "])
+    def test_leeres_passwort(self, leer):
+        from app.services.mail_factory import normalize_password
+        assert normalize_password(leer) == ""
+
+    def test_passwort_aus_secrets_wird_normalisiert(self, app):
+        from app.services.mail_factory import smtp_config_from_settings
+        from app.settings_service import Settings
+
+        class _Store:
+            def get(self, key, default=None):
+                return "wxyz 1234 abcd efgh"
+
+        with app.app_context():
+            from app.db import get_session
+            cfg = smtp_config_from_settings(Settings(get_session()), _Store())
+        assert cfg.password == "wxyz1234abcdefgh"
+
+    def test_ohne_secrets_ist_das_passwort_leer(self, app):
+        from app.services.mail_factory import smtp_config_from_settings
+        from app.settings_service import Settings
+        with app.app_context():
+            from app.db import get_session
+            cfg = smtp_config_from_settings(Settings(get_session()), None)
+        assert cfg.password == ""
+
+    def test_gmail_konfiguration_ergaenzt_smtp(self, admin, csrf, app):
+        admin.post("/einstellungen/smtp", data={
+            "csrf_token": csrf("/einstellungen/smtp"),
+            "smtp_host": "smtp.gmail.com", "smtp_port": "587",
+            "smtp_encryption": "starttls",
+            "smtp_username": "jona.snoek@gmail.com",
+            "mail_from_name": "Verzehrabrechnung",
+            "mail_from_address": "jona.snoek@gmail.com",
+        }, follow_redirects=True)
+        with app.app_context():
+            from app.db import get_session
+            from app.services.mail_factory import smtp_config_from_settings
+            from app.settings_service import Settings
+            cfg = smtp_config_from_settings(Settings(get_session()), None)
+            assert cfg.host == "smtp.gmail.com"
+            assert cfg.port == 587
+            assert cfg.encryption == "starttls"
+            assert cfg.username == "jona.snoek@gmail.com"
+            assert cfg.from_address == "jona.snoek@gmail.com"
+
+    def test_smtp_seite_zeigt_provider_vorlagen(self, admin):
+        r = admin.get("/einstellungen/smtp")
+        assert r.status_code == 200
+        text = r.get_data(as_text=True)
+        assert "smtp.gmail.com" in text
+        assert "smtp.office365.com" in text
+        assert "2-Schritt-Verifizierung" in text
+
+
+# ---------------------------------------------------------------------------
 # Abrechnung ueber HTTP
 # ---------------------------------------------------------------------------
 class TestAbrechnungHttp:
