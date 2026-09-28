@@ -1,0 +1,67 @@
+﻿{% extends "setup/base_setup.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block step %}
+<div class="card">
+  <div class="card-head">{{ icon('shield') }}<h2>Schritt 2 &ndash; Administrator</h2></div>
+  <div class="card-body">
+    <p class="muted small">
+      Es existiert genau ein Administrator-Konto. Alle Funktionen der Anwendung sind
+      dadurch geschuetzt. Personen der Verzehrabrechnung brauchen <strong>keinen</strong> Login.
+    </p>
+
+    <form method="post" autocomplete="off">
+      {{ csrf_field() }}
+      <div class="field-row">
+        <div class="field {{ 'has-error' if errors.get('admin_username') }}">
+          <label for="admin_username">Admin-Benutzername *</label>
+          <input type="text" id="admin_username" name="admin_username" required
+                 value="{{ data.get('admin_username', '') }}" autocomplete="username"
+                 minlength="3" maxlength="64" autofocus>
+          <p class="hint">3-64 Zeichen: Buchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.</p>
+          {% if errors.get('admin_username') %}<p class="error-text">{{ errors.admin_username }}</p>{% endif %}
+        </div>
+        <div class="field {{ 'has-error' if errors.get('admin_email') }}">
+          <label for="admin_email">Admin-E-Mail *</label>
+          <input type="email" id="admin_email" name="admin_email" required
+                 value="{{ data.get('admin_email', '') }}" autocomplete="email">
+          <p class="hint">Wird nur fuer den Login und das Passwort-Reset genutzt.</p>
+          {% if errors.get('admin_email') %}<p class="error-text">{{ errors.admin_email }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="display_name">Anzeigename</label>
+        <input type="text" id="display_name" name="display_name" maxlength="120"
+               value="{{ data.get('display_name', '') }}" placeholder="optional">
+      </div>
+
+      <div class="field-row">
+        <div class="field {{ 'has-error' if errors.get('admin_password') }}">
+          <label for="admin_password">Passwort *</label>
+          <input type="password" id="admin_password" name="admin_password" required minlength="10" autocomplete="new-password">
+          <p class="hint">Mindestens 10 Zeichen, drei von: Klein-, Grossbuchstaben, Ziffern, Sonderzeichen.</p>
+          {% if errors.get('admin_password') %}<p class="error-text">{{ errors.admin_password }}</p>{% endif %}
+        </div>
+        <div class="field {{ 'has-error' if errors.get('admin_password_confirm') }}">
+          <label for="admin_password_confirm">Passwort wiederholen *</label>
+          <input type="password" id="admin_password_confirm" name="admin_password_confirm" required minlength="10" autocomplete="new-password">
+          {% if errors.get('admin_password_confirm') %}<p class="error-text">{{ errors.admin_password_confirm }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div class="notice notice-info mt-1">
+        {{ icon('shield') }}
+        <div>Das Passwort wird ausschliesslich als Hash (PBKDF2-SHA256) gespeichert.
+          Klartext-Passwoerter werden zu keinem Zeitpunkt in die Datenbank geschrieben.</div>
+      </div>
+
+      <div class="form-actions">
+        <a class="btn" href="{{ url_for('setup.step', number=1) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+        <button class="btn btn-primary" type="submit" data-label="Wird angelegt...">
+          {{ icon('save') }}<span>Anlegen und fortfahren</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

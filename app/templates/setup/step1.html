@@ -1,0 +1,87 @@
+﻿{% extends "setup/base_setup.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block step %}
+<div class="card">
+  <div class="card-head">{{ icon('database') }}<h2>Schritt 1 &ndash; Datenbank</h2></div>
+  <div class="card-body">
+    <p class="muted small">
+      Die Datenbank wird bei Bedarf automatisch angelegt und migriert. Es ist nichts
+      weiter zu konfigurieren, solange die Verbindung funktioniert.
+    </p>
+
+    <div class="table-wrap mt-1">
+      <table class="data">
+        <tbody>
+          <tr><th style="width:180px">Datenbank-Engine</th>
+              <td><span class="badge badge-accent">{{ db_info.dialect|upper }}</span></td></tr>
+          <tr><th>Host</th><td class="mono">{{ db_info.host }}</td></tr>
+          <tr><th>Port</th><td class="mono">{{ db_info.port or '-' }}</td></tr>
+          <tr><th>Name / Datei</th><td class="mono">{{ db_info.name or '-' }}</td></tr>
+          <tr><th>Status</th>
+              <td>
+                {% if db_info.ok %}
+                <span class="badge badge-bezahlt">verbunden</span>
+                {% else %}
+                <span class="badge badge-fehlgeschlagen">fehlgeschlagen</span>
+                <div class="tiny" style="color:var(--danger)">{{ db_info.error }}</div>
+                {% endif %}
+              </td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if not db_info.ok %}
+    <div class="notice notice-danger mt-2">
+      {{ icon('alert') }}
+      <div>
+        <strong>Die Datenbank ist nicht erreichbar.</strong>
+        Unten kannst du die Verbindung direkt anpassen. Alternativ in der
+        <code>.env</code> bzw. als Umgebungsvariable <code>DATABASE_URL</code>.
+      </div>
+    </div>
+    {% endif %}
+
+    <details class="mt-2" {% if not db_info.ok %}open{% endif %}>
+      <summary class="small">Verbindung aendern</summary>
+      <form method="post" action="{{ url_for('setup.step', number=1) }}" class="mt-1">
+        {{ csrf_field() }}
+        <input type="hidden" name="action" value="change">
+        <div class="field {{ 'has-error' if errors.get('database_url') }}">
+          <label for="database_url">Datenbank-URL</label>
+          <input type="text" id="database_url" name="database_url" class="mono"
+                 value="{{ data.get('database_url', '') }}"
+                 placeholder="sqlite:////srv/verzehr/instance/payment.db"
+                 autocomplete="off" spellcheck="false">
+          <p class="tiny muted">
+            SQLite: <code>sqlite:///pfad/datei.db</code> &middot;
+            PostgreSQL: <code>postgresql://user:pass@host:5432/datenbank</code>
+            &middot; Passwoerter werden nie angezeigt.
+          </p>
+          {% if errors.get('database_url') %}<p class="error-text">{{ errors.database_url }}</p>{% endif %}
+        </div>
+        <div class="row">
+          <span class="muted small">
+            Beim Speichern wird die Verbindung getestet und das Schema angelegt.
+          </span>
+          <span class="spacer"></span>
+          <button class="btn" type="submit">Verbindung uebernehmen</button>
+        </div>
+      </form>
+    </details>
+  </div>
+  <div class="card-foot">
+    <form method="post" action="{{ url_for('setup.step', number=1) }}">
+      {{ csrf_field() }}
+      <div class="row">
+        <span class="muted small">
+          {% if db_info.ok %}Verbindung steht bereit.{% else %}Verbindung fehlt.{% endif %}
+        </span>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" type="submit" {% if not db_info.ok %}disabled{% endif %}>
+          Verbindung pruefen und fortfahren {{ icon('arrow-right') }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

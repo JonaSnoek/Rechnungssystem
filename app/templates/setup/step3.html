@@ -1,0 +1,61 @@
+﻿{% extends "setup/base_setup.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block step %}
+<div class="card">
+  <div class="card-head">{{ icon('paypal') }}<h2>Schritt 3 &ndash; PayPal</h2></div>
+  <div class="card-body">
+    <p class="muted small">
+      Das System erzeugt aus dem Benutzernamen und dem Gesamtbetrag automatisch einen
+      PayPal.Me-Zahlungslink. Der Benutzername wird <strong>nicht</strong> im Quellcode
+      hinterlegt, sondern hier in der Datenbank gespeichert.
+    </p>
+
+    <form method="post">
+      {{ csrf_field() }}
+      <div class="field-row">
+        <div class="field {{ 'has-error' if errors.get('paypal_me_username') }}">
+          <label for="paypal_me_username">PayPal.Me-Benutzername *</label>
+          <input type="text" id="paypal_me_username" name="paypal_me_username" required
+                 value="{{ data.get('paypal_me_username', settings.paypal_username) }}"
+                 placeholder="JONASNOEK1" maxlength="25" autocapitalize="characters"
+                 spellcheck="false" autofocus>
+          <p class="hint">Gross-/Kleinbuchstaben, Ziffern, Punkt, Unterstrich, Bindestrich.</p>
+          {% if errors.get('paypal_me_username') %}<p class="error-text">{{ errors.paypal_me_username }}</p>{% endif %}
+        </div>
+        <div class="field {{ 'has-error' if errors.get('currency') }}">
+          <label for="currency">Waehrung *</label>
+          <select id="currency" name="currency">
+            {% for code in ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'AUD', 'CAD', 'JPY'] %}
+            <option value="{{ code }}" {{ 'selected' if settings.currency == code }}>{{ code }}</option>
+            {% endfor %}
+          </select>
+          {% if errors.get('currency') %}<p class="error-text">{{ errors.currency }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="paypal_base_url">PayPal-Basis-URL</label>
+        <input type="url" id="paypal_base_url" name="paypal_base_url"
+               value="{{ settings.paypal_base_url or 'https://www.paypal.me' }}" maxlength="200">
+        <p class="hint">Fuer Self-Hosted-PayPal-Instanzen anpassbar. Standard: https://www.paypal.me</p>
+      </div>
+
+      <div class="notice notice-info">
+        {{ icon('paypal') }}
+        <div>
+          Beispielausgabe bei 5,90 {{ settings.currency }} und Benutzernamen
+          <code>JONASNOEK1</code>:<br>
+          <span class="mono">https://www.paypal.me/JONASNOEK1/5.90{{ settings.currency }}</span>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <a class="btn" href="{{ url_for('setup.step', number=2) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+        <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+          {{ icon('save') }}<span>Speichern und fortfahren</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

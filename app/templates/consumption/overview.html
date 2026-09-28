@@ -1,0 +1,106 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field, status_badge %}
+{% block title %}Buchungen - {{ app_name }}{% endblock %}
+{% block page_title %}Buchungen{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ total }} Eintraege{% if person_id %} &middot; gefiltert{% endif %}</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('system.export_consumptions', person_id=person_id or '') }}">{{ icon('download') }}<span>CSV</span></a>
+  <a class="btn btn-primary" href="{{ url_for('consumption.entry') }}">{{ icon('plus') }}<span>Verzehr erfassen</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <form method="get" class="row-tight" style="flex:1;max-width:520px">
+      <select name="status" onchange="this.form.submit()">
+        <option value="">Alle Status (ohne stornierte)</option>
+        <option value="OFFEN" {{ 'selected' if status_filter == 'OFFEN' }}>Offen</option>
+        <option value="ABGERECHNET" {{ 'selected' if status_filter == 'ABGERECHNET' }}>Abgerechnet</option>
+        <option value="STORNIERT" {{ 'selected' if status_filter == 'STORNIERT' }}>Storniert</option>
+      </select>
+      <select name="person_id" onchange="this.form.submit()">
+        <option value="">Alle Personen</option>
+        {% for p in person_options %}
+        <option value="{{ p.id }}" {{ 'selected' if person_id == p.id }}>{{ p.full_name }}</option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="page" value="1">
+      <button class="btn" type="submit">{{ icon('search') }}<span>Filtern</span></button>
+    </form>
+    <span class="spacer"></span>
+    <a class="btn btn-sm" href="{{ url_for('consumption.overview') }}">Zuruecksetzen</a>
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Zeitpunkt</th><th>Person</th><th>Produkt</th>
+          <th class="num">Menge</th><th class="num">Einzel</th><th class="num">Summe</th>
+          <th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c, first_name, last_name in rows %}
+        <tr>
+          <td class="nowrap">
+            {{ c.created_at|localdt('%d.%m.%Y %H:%M', timezone) }}
+            {% if c.batch_id %}<div class="tiny subtle mono">{{ c.batch_id }}</div>{% endif %}
+          </td>
+          <td><a href="{{ url_for('persons.detail', person_id=c.person_id) }}">{{ first_name }} {{ last_name }}</a></td>
+          <td>
+            {{ c.product_name }}
+            {% if c.note %}<div class="tiny subtle">{{ c.note }}</div>{% endif %}
+          </td>
+          <td class="num"><span class="qty-badge">{{ c.quantity }}</span></td>
+          <td class="num">{{ c.unit_price_cents|money(c.currency) }}</td>
+          <td class="num strong">{{ c.total_cents|money(c.currency) }}</td>
+          <td>
+            {{ c.status|status_badge }}
+            {% if c.invoice_id %}
+            <div class="tiny"><a href="{{ url_for('invoices.detail', invoice_id=c.invoice_id) }}">Rechnung #{{ c.invoice_id }}</a></div>
+            {% endif %}
+          </td>
+          <td>
+            <div class="row-actions">
+              {% if c.status.value == 'STORNIERT' %}
+              <form method="post" action="{{ url_for('consumption.reopen', consumption_id=c.id) }}">
+                {{ csrf_field() }}<button class="btn btn-sm" type="submit" title="Wieder aktivieren">{{ icon('refresh') }}</button>
+              </form>
+              {% elif c.status.value == 'OFFEN' %}
+              <form method="post" action="{{ url_for('consumption.cancel', consumption_id=c.id) }}"
+                    data-confirm="Buchung {{ c.quantity }}x {{ c.product_name }} ({{ c.total_cents|money(c.currency) }}) stornieren?">
+                {{ csrf_field() }}<button class="btn btn-sm" type="submit" title="Stornieren">{{ icon('x') }}</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="card-foot row">
+    <span class="muted small">Seite {{ page }} von {{ pages }}</span>
+    <span class="spacer"></span>
+    {% set base = request.args.to_dict() %}
+    {% if page > 1 %}
+    <a class="btn btn-sm" href="{{ url_for('consumption.overview', page=page - 1, status=status_filter, person_id=person_id or '') }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+    {% endif %}
+    {% if page < pages %}
+    <a class="btn btn-sm" href="{{ url_for('consumption.overview', page=page + 1, status=status_filter, person_id=person_id or '') }}"><span>Weiter</span>{{ icon('arrow-right') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">
+    <h3>Keine Buchungen</h3>
+    <p>Es entspricht nichts den Filtern.</p>
+    <a class="btn btn-primary" href="{{ url_for('consumption.entry') }}">{{ icon('plus') }}<span>Verzehr erfassen</span></a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

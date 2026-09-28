@@ -1,0 +1,95 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Produkte - {{ app_name }}{% endblock %}
+{% block page_title %}Produkte{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ products|length }} angezeigt</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn btn-primary" href="{{ url_for('products.create') }}">{{ icon('plus') }}<span>Produkt anlegen</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <form method="get" class="row-tight" style="flex:1;max-width:420px">
+      {{ icon('search') }}
+      <input type="search" name="q" value="{{ query }}" placeholder="Produkt suchen..." autofocus>
+      <input type="hidden" name="inactive" value="{{ '1' if show_inactive else '0' }}">
+    </form>
+    <label class="checkbox">
+      <input type="checkbox" {{ 'checked' if show_inactive }}
+             onchange="window.location.href='{{ url_for('products.index') }}?q={{ query|urlencode }}&inactive=' + (this.checked ? '1' : '0')">
+      <span class="small">Inaktive zeigen</span>
+    </label>
+  </div>
+
+  {% if products %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Produkt</th>
+          <th>Kategorie</th>
+          <th class="num">Preis</th>
+          <th class="num">Buchungen</th>
+          <th class="num">Offen</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for product in products %}
+        <tr>
+          <td>
+            <strong>{{ product.name }}</strong>
+            {% if product.description %}<div class="tiny subtle">{{ product.description[:80] }}</div>{% endif %}
+          </td>
+          <td class="small muted">{{ product.category or '-' }}</td>
+          <td class="num strong">{{ product.price_cents|money(currency) }}</td>
+          <td class="num">{{ usage.get(product.id, 0) }}</td>
+          <td class="num">
+            {% set open_n = open_usage.get(product.id, 0) %}
+            {% if open_n %}<span class="badge badge-zahlung-angefordert">{{ open_n }}</span>
+            {% else %}<span class="subtle">&ndash;</span>{% endif %}
+          </td>
+          <td><span class="badge {{ 'badge-aktiv' if product.is_active else 'badge-inaktiv' }}">
+            {{ 'Aktiv' if product.is_active else 'Inaktiv' }}</span></td>
+          <td>
+            <div class="row-actions">
+              <a class="btn btn-sm" href="{{ url_for('products.edit', product_id=product.id) }}">{{ icon('edit') }}</a>
+              <form method="post" action="{{ url_for('products.toggle_status', product_id=product.id) }}">
+                {{ csrf_field() }}
+                <button class="btn btn-sm" type="submit" title="{{ 'Deaktivieren' if product.is_active else 'Aktivieren' }}">
+                  {{ icon('check') if not product.is_active else icon('x') }}
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('products.delete', product_id=product.id) }}"
+                    data-confirm="Produkt {{ product.name }} loeschen? Historische Buchungen behalten ihren Namen und Preis.">
+                {{ csrf_field() }}
+                <button class="btn btn-sm btn-danger" type="submit" title="Loeschen">{{ icon('trash') }}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>{{ 'Keine Treffer' if query else 'Noch keine Produkte' }}</h3>
+    <p>Ohne Produkte kann kein Verzehr erfasst werden.</p>
+    <a class="btn btn-primary" href="{{ url_for('products.create') }}">{{ icon('plus') }}<span>Produkt anlegen</span></a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="notice notice-info mt-2">
+  {{ icon('shield') }}
+  <div>
+    <strong>Preisaenderungen wirken nicht rueckwirkend.</strong>
+    Bei jeder Buchung werden Produktname und Einzelpreis als Snapshot gespeichert.
+    Ein am 01.09. gebuchtes Produkt zum Preis von 2,00 {{ currency }} wird auch nach
+    einer Preiserhoehung mit 2,00 {{ currency }} abgerechnet.
+  </div>
+</div>
+{% endblock %}

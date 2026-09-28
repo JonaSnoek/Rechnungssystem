@@ -1,0 +1,104 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Wiederherstellen - {{ app_name }}{% endblock %}
+{% block page_title %}Backup wiederherstellen{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">Achtung: vorhandene Daten werden ersetzt</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('system.backups') }}">{{ icon('arrow-left') }}<span>Backups</span></a>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:760px" class="stack">
+  {% if error %}
+  <div class="notice notice-danger">{{ icon('alert') }}<div>{{ error }}</div></div>
+  {% endif %}
+
+  <div class="notice notice-warning">
+    {{ icon('alert') }}
+    <div><strong>Vor der Wiederherstellung unbedingt ein aktuelles Backup anlegen.</strong>
+      Die Aktion ist nicht rueckgaengig zu machen. Alle Personen, Produkte, Buchungen und
+      Abrechnungen werden durch den Inhalt der Datei ersetzt.</div>
+  </div>
+
+  <form method="post" action="{{ url_for('system.restore') }}" enctype="multipart/form-data"
+        data-ask="Wirklich alle Daten durch das gewaehlte Backup ersetzen?">
+    {{ csrf_field() }}
+
+    <div class="card">
+      <div class="card-head">{{ icon('upload') }}<h2>Backup waehlen</h2></div>
+      <div class="card-body">
+        <div class="field">
+          <label for="backup_file">JSON-Datei hochladen</label>
+          <input type="file" id="backup_file" name="backup_file" accept="application/json,.json">
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="field">
+          <label for="file_name">oder gespeichertes Backup auswaehlen</label>
+          <select id="file_name" name="file_name">
+            <option value="">&ndash; keins &ndash;</option>
+            {% for name in stored_files %}
+            <option value="{{ name }}" {{ 'selected' if preview and preview.get('meta', {}).get('file') == name }}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="payload">oder Backup-Inhalt einfuegen</label>
+          <textarea id="payload" name="payload" rows="4" class="mono"
+                    placeholder='{"meta": {...}, "data": {...}}'></textarea>
+        </div>
+
+        <div class="field">
+          <label for="mode">Modus</label>
+          <select id="mode" name="mode">
+            <option value="replace">Ersetzen (empfohlen) &ndash; Zieldaten werden geloescht</option>
+            <option value="merge">Zusammenfuehren &ndash; vorhandene Datensaetze werden ergaenzt</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="confirm">Bestaetigung</label>
+          <input type="text" id="confirm" name="confirm" placeholder="JA" autocomplete="off" class="mono">
+          <p class="hint">Bitte exakt <strong>JA</strong> eingeben, sonst wird nichts ausgefuehrt.</p>
+        </div>
+      </div>
+      <div class="card-foot row">
+        <a class="btn" href="{{ url_for('system.index') }}">{{ icon('arrow-left') }}<span>Abbrechen</span></a>
+        <span class="spacer"></span>
+        <button class="btn btn-danger" type="submit" data-label="Wird wiederhergestellt...">
+          {{ icon('refresh') }}<span>Wiederherstellen</span></button>
+      </div>
+    </div>
+  </form>
+
+  {% if preview %}
+  <div class="card">
+    <div class="card-head">{{ icon('search') }}<h2>Inhalt des Backups</h2></div>
+    <div class="card-body">
+      <table class="data">
+        <thead><tr><th>Datensatz</th><th class="num">Anzahl</th></tr></thead>
+        <tbody>
+          {% for key, value in (preview.get('data') or {}).items() %}
+          {% if value is mapping or (value is not string and value is not none) %}
+          <tr>
+            <td class="mono small">{{ key }}</td>
+            <td class="num">{{ value|length }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if preview.get('meta') %}
+      <p class="small muted mt-1">
+        Erstellt: {{ preview.meta.get('created_at', '-') }}
+        {%- if preview.meta.get('app_version') %} &middot; App-Version {{ preview.meta.app_version }}{% endif %}
+        {%- if preview.meta.get('schema_version') %} &middot; Schema {{ preview.meta.schema_version }}{% endif %}
+      </p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

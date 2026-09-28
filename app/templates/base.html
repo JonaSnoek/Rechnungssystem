@@ -1,0 +1,113 @@
+﻿<!DOCTYPE html>
+<html lang="de" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% from "_macros.html" import icon, csrf_field %}
+
+{% block chrome %}
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-mark">{{ icon('paypal') }}</span>
+      <span class="brand-text">
+        <strong>{{ app_name }}</strong>
+        <small>Verzehrabrechnung</small>
+      </span>
+      <button class="sidebar-close" type="button" data-sidebar-close aria-label="Menue schliessen">{{ icon('x') }}</button>
+    </div>
+
+    <nav class="nav" aria-label="Hauptnavigation">
+      <a class="nav-item {{ 'active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}">
+        {{ icon('home') }}<span>Dashboard</span>
+      </a>
+      <a class="nav-item {{ 'active' if request.blueprint == 'consumption' }}" href="{{ url_for('consumption.entry') }}">
+        {{ icon('plus') }}<span>Verzehr erfassen</span>
+      </a>
+      <a class="nav-item {{ 'active' if request.blueprint == 'persons' }}" href="{{ url_for('persons.index') }}">
+        {{ icon('users') }}<span>Personen</span>
+      </a>
+      <a class="nav-item {{ 'active' if request.blueprint == 'products' }}" href="{{ url_for('products.index') }}">
+        {{ icon('box') }}<span>Produkte</span>
+      </a>
+      <a class="nav-item {{ 'active' if request.blueprint == 'invoices' }}" href="{{ url_for('invoices.index') }}">
+        {{ icon('invoice') }}<span>Abrechnungen</span>
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'consumption.overview' }}" href="{{ url_for('consumption.overview') }}">
+        {{ icon('clock') }}<span>Buchungen</span>
+      </a>
+
+      <div class="nav-sep"></div>
+
+      <a class="nav-item {{ 'active' if request.blueprint == 'settings' }}" href="{{ url_for('settings.index') }}">
+        {{ icon('gear') }}<span>Einstellungen</span>
+      </a>
+      <a class="nav-item {{ 'active' if request.blueprint == 'system' }}" href="{{ url_for('system.index') }}">
+        {{ icon('database') }}<span>System</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="user-chip">
+        <span class="user-name">{{ current_admin.username if current_admin else '-' }}</span>
+        <span class="user-role">Administrator</span>
+      </div>
+      <div class="sidebar-actions">
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('auth.change_password') }}">Passwort</a>
+        <form method="post" action="{{ url_for('auth.logout') }}" class="inline-form">
+          {{ csrf_field() }}
+          <button class="btn btn-ghost btn-sm" type="submit">{{ icon('logout') }}<span>Abmelden</span></button>
+        </form>
+      </div>
+      <button class="btn btn-ghost btn-sm theme-toggle" type="button" data-theme-toggle>
+        <span data-theme-label>Design</span>
+      </button>
+      <p class="version">v{{ app_version }}</p>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" type="button" data-sidebar-open aria-label="Menue">{{ icon('box') }}</button>
+      <div class="topbar-title">
+        <h1>{% block page_title %}{% endblock %}</h1>
+        {% block page_subtitle %}{% endblock %}
+      </div>
+      <div class="topbar-actions">
+        {% block topbar_actions %}{% endblock %}
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flashes">
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}" role="status">
+              <span class="flash-text">{{ message }}</span>
+              <button class="flash-close" type="button" data-dismiss aria-label="Schliessen">{{ icon('x') }}</button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% endblock %}
+
+<div class="sidebar-backdrop" data-sidebar-close hidden></div>
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,217 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field, status_badge %}
+{% block title %}Verzehr erfassen - {{ app_name }}{% endblock %}
+{% block page_title %}Verzehr erfassen{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  {% if person %}
+    {{ person.full_name }} &middot; heute {{ today_count }} Position(en) &middot; offen {{ balance|money(currency) }}
+  {% else %}
+    Person waehlen und Produkte antippen
+  {% endif %}
+</span>
+{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('consumption.overview') }}">{{ icon('clock') }}<span>Alle Buchungen</span></a>
+  {% if person %}
+  <a class="btn btn-primary" href="{{ url_for('invoices.person_billing', person_id=person.id) }}">{{ icon('invoice') }}<span>Abrechnen</span></a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not persons %}
+  <div class="card">
+    <div class="empty-state">
+      <h3>Keine aktiven Personen</h3>
+      <p>Lege zuerst eine Person an, um Verzehr erfassen zu koennen.</p>
+      <a class="btn btn-primary" href="{{ url_for('persons.create') }}">{{ icon('plus') }}<span>Person anlegen</span></a>
+    </div>
+  </div>
+{% elif not products %}
+  <div class="card">
+    <div class="empty-state">
+      <h3>Keine aktiven Produkte</h3>
+      <p>Ohne Produkte kann kein Verzehr gebucht werden.</p>
+      <a class="btn btn-primary" href="{{ url_for('products.create') }}">{{ icon('plus') }}<span>Produkt anlegen</span></a>
+    </div>
+  </div>
+{% else %}
+
+<div class="entry-layout">
+  <!-- ------------------------------------------------ person picker -->
+  <div class="card person-picker">
+    <div class="card-head">
+      {{ icon('users') }}<h2>Person</h2>
+      <a class="btn btn-sm" href="{{ url_for('persons.create') }}" title="Neue Person">{{ icon('plus') }}</a>
+    </div>
+    <div class="card-body tight">
+      <input type="search" placeholder="Person suchen..." data-filter-list=".person-btn" style="margin:.4rem">
+    </div>
+    <div class="person-list">
+      {% for p in persons %}
+      <a class="person-btn {{ 'active' if person and p.id == person.id }}"
+         href="{{ url_for('consumption.entry', person_id=p.id) }}"
+         data-search="{{ p.full_name }} {{ p.email }}">
+        <span class="avatar">{{ p.first_name[:1]|upper }}{{ p.last_name[:1]|upper }}</span>
+        <span class="meta">
+          <strong>{{ p.full_name }}</strong>
+          <small>{{ p.email }}</small>
+        </span>
+      </a>
+      {% endfor %}
+      <div class="table-empty hidden" data-filter-empty>Kein Treffer</div>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------ entry area -->
+  <div class="stack">
+    {% if not person %}
+    <div class="card">
+      <div class="empty-state">
+        <h3>Person auswaehlen</h3>
+        <p>Waehle links eine Person, um den Verzehr zu erfassen.</p>
+      </div>
+    </div>
+    {% else %}
+
+    <form method="post" action="{{ url_for('consumption.save') }}"
+          data-cart-form data-no-lock data-currency="{{ currency }}">
+      {{ csrf_field() }}
+      <input type="hidden" name="person_id" value="{{ person.id }}">
+
+      <div class="card">
+        <div class="card-head">
+          <span class="avatar" style="width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-weight:700">
+            {{ person.first_name[:1]|upper }}{{ person.last_name[:1]|upper }}
+          </span>
+          <div>
+            <h2>{{ person.full_name }}</h2>
+            <span class="card-sub">{{ person.email }}</span>
+          </div>
+          <span class="spacer"></span>
+          <a class="btn btn-sm" href="{{ url_for('persons.detail', person_id=person.id) }}">Profil</a>
+        </div>
+        <div class="card-body">
+          <div class="product-grid">
+            {% for product in products %}
+            <div class="product-tile">
+              <span class="p-name">
+                {{ product.name }}
+                <small>{{ product.price_cents|money(currency) }}</small>
+              </span>
+              <span class="stepper">
+                <button type="button" data-step="-1" aria-label="{{ product.name }} verringern">&minus;</button>
+                <input type="number" name="qty_{{ product.id }}" value="0" min="0" max="{{ max_quantity }}"
+                       inputmode="numeric" data-price="{{ product.price_cents }}"
+                       aria-label="Menge {{ product.name }}">
+                <button type="button" data-step="1" aria-label="{{ product.name }} erhoehen">+</button>
+              </span>
+            </div>
+            {% endfor %}
+          </div>
+
+          <div class="mt-2">
+            <label for="note" class="label">Notiz (optional)</label>
+            <input type="text" id="note" name="note" maxlength="255" placeholder="z. B. Sonderwunsch, Bar-Nummer">
+          </div>
+        </div>
+        <div class="card-foot">
+          <div class="entry-total">
+            <div>
+              <span class="label">Auswahl</span>
+              <span class="value"><span data-cart-count>0</span> Position(en)</span>
+            </div>
+            <div>
+              <span class="label">Gesamt</span>
+              <span class="value" data-cart-total>0,00</span>
+            </div>
+            <span class="spacer"></span>
+            <button class="btn btn-ghost" type="reset">Zuruecksetzen</button>
+            <button class="btn btn-primary btn-lg" type="submit" data-cart-save data-label="Wird gespeichert..." disabled>
+              {{ icon('save') }}<span>Verzehr speichern</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <!-- ------------------------------------------- quick entry -->
+    <div class="card" data-quick-panel data-quick-url="{{ url_for('consumption.quick') }}">
+      <div class="card-head">
+        {{ icon('plus') }}
+        <div>
+          <h2>Schnellerfassung</h2>
+          <span class="card-sub">Ein Klick pro Verzehr - ohne Seite neu zu laden</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <form data-quick-form>
+          {{ csrf_field() }}
+          <div class="row mb-1">
+            <label class="label mb-0">Person</label>
+            <select data-quick-person style="max-width:260px">
+              <option value="{{ person.id }}" selected>{{ person.full_name }}</option>
+              {% for p in persons if p.id != person.id %}
+              <option value="{{ p.id }}">{{ p.full_name }}</option>
+              {% endfor %}
+            </select>
+            <label class="label mb-0">Menge</label>
+            <input type="number" data-quick-qty value="1" min="1" max="{{ max_quantity }}"
+                   style="width:74px" inputmode="numeric">
+            <span class="spacer"></span>
+            <span class="small muted">Offen: <strong data-quick-balance>{{ balance|money(currency) }}</strong></span>
+          </div>
+        </form>
+
+        <div class="quick-grid">
+          {% for product in products %}
+          <button type="button" class="quick-btn" data-quick-product="{{ product.id }}">
+            <span class="q-name">{{ product.name }}</span>
+            <span class="q-price">{{ product.price_cents|money(currency) }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------- last bookings -->
+    {% if recent %}
+    <div class="card">
+      <div class="card-head">{{ icon('clock') }}<h2>Zuletzt gebucht</h2></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Zeit</th><th>Produkt</th><th class="num">Menge</th><th class="num">Summe</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {% for c, product_name in recent %}
+            <tr>
+              <td class="nowrap">{{ c.created_at|localdt('%H:%M', timezone) }}</td>
+              <td>{{ c.product_name }}</td>
+              <td class="num"><span class="qty-badge">{{ c.quantity }}</span></td>
+              <td class="num strong">{{ c.total_cents|money(c.currency) }}</td>
+              <td>{{ c.status|status_badge }}</td>
+              <td>
+                <div class="row-actions">
+                  {% if c.status.value == 'STORNIERT' %}
+                  <form method="post" action="{{ url_for('consumption.reopen', consumption_id=c.id) }}">
+                    {{ csrf_field() }}<button class="btn btn-sm" type="submit" title="Wieder aktivieren">{{ icon('refresh') }}</button>
+                  </form>
+                  {% elif c.status.value == 'OFFEN' %}
+                  <form method="post" action="{{ url_for('consumption.cancel', consumption_id=c.id) }}"
+                        data-confirm="Buchung {{ c.quantity }}x {{ c.product_name }} stornieren?">
+                    {{ csrf_field() }}<button class="btn btn-sm" type="submit" title="Stornieren">{{ icon('x') }}</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

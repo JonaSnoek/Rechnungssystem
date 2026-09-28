@@ -1,0 +1,256 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, status_badge %}
+{% block title %}Dashboard - {{ app_name }}{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+{% block page_title %}Payment Dashboard{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ now.strftime('%A, %d.%m.%Y') if now else '' }} &middot; {{ timezone }}</span>{% endblock %}
+
+{% block topbar_actions %}
+  <a class="btn btn-primary" href="{{ url_for('consumption.entry') }}">{{ icon('plus') }}<span>Verzehr</span></a>
+  <form method="post" action="{{ url_for('invoices.run_now') }}" class="inline-form" data-confirm="Tagesabrechnung jetzt fuer alle Personen mit offenen Betraegen ausfuehren?">
+    {{ csrf_field() }}
+    <button class="btn" type="submit" data-label="Wird gesendet...">{{ icon('invoice') }}<span>Abrechnung senden</span></button>
+  </form>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+
+  {% if not settings_obj.auto_billing_enabled %}
+  <div class="notice notice-warning">
+    {{ icon('alert') }}
+    <div><strong>Automatische Tagesabrechnung ist deaktiviert.</strong>
+      Offene Buchungen werden nicht automatisch per E-Mail abgerechnet.
+      <a href="{{ url_for('settings.general', tab='billing') }}">Einstellungen oeffnen</a></div>
+  </div>
+  {% elif not settings_obj.paypal_username %}
+  <div class="notice notice-danger">
+    {{ icon('alert') }}
+    <div><strong>Kein PayPal.Me-Benutzername hinterlegt.</strong>
+      Ohne diesen Wert koennen keine Zahlungslinks erzeugt werden.
+      <a href="{{ url_for('settings.general', tab='paypal') }}">Jetzt eintragen</a></div>
+  </div>
+  {% elif not settings_obj.get('smtp_host') %}
+  <div class="notice notice-danger">
+    {{ icon('mail') }}
+    <div><strong>SMTP ist nicht konfiguriert.</strong>
+      Die Tagesabrechnung kann keine E-Mails versenden.
+      <a href="{{ url_for('settings.general', tab='smtp') }}">SMTP einrichten</a></div>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-4">
+    <div class="stat stat-accent">
+      <span class="stat-label">Offene Personen</span>
+      <span class="stat-value">{{ stats.open_persons }}</span>
+      <span class="stat-hint">mit offenen Buchungen</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Offener Gesamtbetrag</span>
+      <span class="stat-value">{{ stats.open_total_cents|money(currency) }}</span>
+      <span class="stat-hint">{{ stats.open_items }} Positionen</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Heute konsumiert</span>
+      <span class="stat-value">{{ stats.today_consumed_items }}</span>
+      <span class="stat-hint">{{ stats.today_bookings }} Buchungen &middot; {{ stats.today_consumed_cents|money(currency) }}</span>
+    </div>
+    <div class="stat {{ 'stat-success' if stats.today_billed_persons else '' }}">
+      <span class="stat-label">Heute abgerechnet</span>
+      <span class="stat-value">{{ stats.today_billed_persons }}</span>
+      <span class="stat-hint">{{ stats.today_billed_items }} Positionen &middot; {{ stats.today_billed_cents|money(currency) }}</span>
+    </div>
+  </div>
+
+  <div class="grid grid-4">
+    <div class="stat">
+      <span class="stat-label">Naechste Abrechnung</span>
+      <span class="stat-value sm">
+        {%- if not stats.auto_billing_enabled -%} deaktiviert
+        {%- elif stats.next_run_at -%}
+          {% if stats.next_run_at.date() == now.date() %}Heute{% else %}Morgen{% endif %}
+          {{ stats.next_run_at.strftime('%H:%M') }} Uhr
+        {%- else -%} -{%- endif -%}
+      </span>
+      <span class="stat-hint">
+        {%- if stats.auto_billing_enabled -%}{{ stats.billing_time }} Uhr &middot; {{ timezone }}
+        {%- else -%}in den Einstellungen aktivierbar{%- endif -%}
+      </span>
+    </div>
+    <div class="stat {{ 'stat-warning' if stats.unpaid_invoices else '' }}">
+      <span class="stat-label">Unbezahlte Rechnungen</span>
+      <span class="stat-value">{{ stats.unpaid_invoices }}</span>
+      <span class="stat-hint">{{ stats.unpaid_cents|money(currency) }} angefordert</span>
+    </div>
+    <div class="stat {{ 'stat-danger' if stats.failed_invoices else '' }}">
+      <span class="stat-label">Fehlgeschlagene sends</span>
+      <span class="stat-value">{{ stats.failed_invoices }}</span>
+      <span class="stat-hint">warten auf Wiederholung</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Stammdaten</span>
+      <span class="stat-value">{{ stats.active_persons }} / {{ stats.active_products }}</span>
+      <span class="stat-hint">aktive Personen / Produkte</span>
+    </div>
+  </div>
+
+  <div class="grid grid-sidebar">
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">
+          {{ icon('users') }}
+          <h2>Offene Betraege</h2>
+          <span class="muted small">{{ stats.open_persons }} Personen</span>
+          <a class="btn btn-sm" href="{{ url_for('invoices.index') }}">Alle</a>
+        </div>
+        {% if open_persons %}
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th class="num">Positionen</th>
+                <th class="num">Offener Betrag</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for person, balance, count in open_persons %}
+              <tr>
+                <td>
+                  <a href="{{ url_for('invoices.person_billing', person_id=person.id) }}" class="strong">{{ person.full_name }}</a>
+                  <div class="tiny subtle">{{ person.email }}</div>
+                </td>
+                <td class="num"><span class="qty-badge">{{ count }}</span></td>
+                <td class="num strong">{{ balance|money(currency) }}</td>
+                <td class="right">
+                  <a class="btn btn-sm" href="{{ url_for('consumption.entry', person_id=person.id) }}">Erfassen</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2">Summe (nur angezeigte)</td>
+                <td class="num">{{ open_persons|sum(attribute=1)|money(currency) }}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <h3>Keine offenen Betraege</h3>
+          <p>Alle Buchungen wurden abgerechnet.</p>
+          <a class="btn btn-primary" href="{{ url_for('consumption.entry') }}">Verzehr erfassen</a>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          {{ icon('invoice') }}
+          <h2>Letzte Abrechnungen</h2>
+        </div>
+        {% if recent_invoices %}
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Nummer</th><th>Person</th><th>Datum</th>
+                <th class="num">Betrag</th><th>Status</th><th>Zahlung</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inv in recent_invoices %}
+              <tr>
+                <td><a href="{{ url_for('invoices.detail', invoice_id=inv.id) }}" class="mono">{{ inv.invoice_number }}</a></td>
+                <td>{{ inv.person.full_name if inv.person else '-' }}</td>
+                <td class="nowrap">{{ inv.period_date|dt(settings_obj.date_format) }}</td>
+                <td class="num strong">{{ inv.total_cents|money(inv.currency) }}</td>
+                <td>{{ inv.status|status_badge }}</td>
+                <td>{{ inv.payment_status|status_badge }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><p>Noch keine Abrechnungen erstellt.</p></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">{{ icon('clock') }}<h3>Letzte Aktivitaeten</h3></div>
+        <div class="card-body">
+          {% if activity %}
+          <div class="timeline">
+            {% for item in activity %}
+            <div class="timeline-item">
+              <span class="timeline-time">{{ item.created_at|localdt('%H:%M', timezone) }}</span>
+              <span class="timeline-body">
+                <strong>{{ item.person_name }}</strong>
+                <span class="muted"> {{ item.summary }}</span>
+              </span>
+              <span class="timeline-amount">{{ item.total_cents|money(item.currency) }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted small">Noch keine Buchungen erfasst.</p>
+          {% endif %}
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-sm btn-block" href="{{ url_for('consumption.overview') }}">Alle Buchungen ansehen</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('invoice') }}<h3>Verlauf (14 Tage)</h3></div>
+        <div class="card-body">
+          {% if trend|sum(attribute='cents') > 0 %}
+          <div class="trend">
+            {% for day in trend %}
+            <div class="trend-col" title="{{ day.date|dt('%d.%m.%Y') }}: {{ day.cents|money(currency) }}">
+              <div class="trend-bar" style="height: {{ ((day.cents / max_trend) * 78)|round(0, 'floor')|int }}px"></div>
+              <span class="trend-label">{{ day.date.strftime('%d.%m') }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted small">Noch keine Verzehrdaten.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('clock') }}<h3>Letzte Abrechnungslaeufe</h3></div>
+        <div class="card-body">
+          {% if recent_runs %}
+          <div class="timeline">
+            {% for run in recent_runs %}
+            <div class="timeline-item">
+              <span class="timeline-time">{{ run.period_date|dt('%d.%m.') }}</span>
+              <span class="timeline-body">
+                <span class="badge {{ 'badge-bezahlt' if run.status == 'erfolgreich' else 'badge-fehlgeschlagen' }}">{{ run.status }}</span>
+                <span class="muted small"> {{ run.emails_sent }} versendet{% if run.emails_failed %}, {{ run.emails_failed }} fehlgeschlagen{% endif %}</span>
+                {% if run.is_catchup %}<span class="badge badge-neutral badge-sm">Nachholung</span>{% endif %}
+              </span>
+              <span class="timeline-amount">{{ run.total_cents|money(currency) }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted small">Noch keine Laeufe.</p>
+          {% endif %}
+        </div>
+        <div class="card-foot">
+          <a class="btn btn-sm btn-block" href="{{ url_for('system.scheduler_view') }}">Scheduler-Status</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

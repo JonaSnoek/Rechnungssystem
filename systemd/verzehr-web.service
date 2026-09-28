@@ -1,0 +1,46 @@
+[Unit]
+Description=Verzehrabrechnung - Flask-Anwendung (Gunicorn)
+Documentation=file:/opt/verzehr/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+# Anpassen, falls die Anwendung anderswo liegt:
+EnvironmentFile=-/opt/verzehr/.env
+WorkingDirectory=/opt/verzehr
+ExecStart=/opt/verzehr/.venv/bin/gunicorn \
+    --workers 2 \
+    --threads 2 \
+    --timeout 60 \
+    --graceful-timeout 30 \
+    --bind 127.0.0.1:8000 \
+    --access-logfile - \
+    --error-logfile - \
+    --capture-output \
+    wsgi:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Härtung
+User=verzehr
+Group=verzehr
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Nur diese Pfade sind beschreibbar:
+ReadWritePaths=/opt/verzehr/instance /opt/verzehr/var
+StateDirectory=verzehr
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,73 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}{{ (product.name ~ ' bearbeiten') if product else 'Produkt anlegen' }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ product.name if product else 'Neues Produkt' }}{% endblock %}
+
+{% block content %}
+<div style="max-width:620px">
+  <form method="post"
+        action="{{ url_for('products.edit', product_id=product.id) if product else url_for('products.create') }}">
+    {{ csrf_field() }}
+    <div class="card">
+      <div class="card-head">{{ icon('box') }}<h2>Produktdaten</h2></div>
+      <div class="card-body">
+        <div class="field {{ 'has-error' if errors.get('name') }}">
+          <label for="name">Name *</label>
+          <input type="text" id="name" name="name" required maxlength="120"
+                 value="{{ form.get('name') or (product.name if product else '') }}" autofocus>
+          {% if errors.get('name') %}<p class="error-text">{{ errors.name }}</p>{% endif %}
+        </div>
+
+        <div class="field-row">
+          <div class="field {{ 'has-error' if errors.get('price') }}">
+            <label for="price">Preis * ({{ currency }})</label>
+            <input type="text" inputmode="decimal" id="price" name="price" required
+                   placeholder="2,00"
+                   value="{{ form.get('price') or (format_decimal_input(product.price_cents) if product else '') }}"
+                   style="font-variant-numeric:tabular-nums">
+            <p class="hint">Komma oder Punkt erlaubt. Wird intern exakt auf Cent gerundet.</p>
+            {% if errors.get('price') %}<p class="error-text">{{ errors.price }}</p>{% endif %}
+          </div>
+          <div class="field">
+            <label for="category">Kategorie</label>
+            <input type="text" id="category" name="category" maxlength="60"
+                   value="{{ form.get('category') or (product.category if product and product.category else '') }}"
+                   placeholder="Getraenke, Speisen, ..">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="description">Beschreibung</label>
+          <textarea id="description" name="description" rows="3" maxlength="2000"
+                    style="font-family:var(--font);font-size:.875rem">{{ form.get('description') or (product.description if product and product.description else '') }}</textarea>
+        </div>
+
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" name="is_active" value="1"
+                   {{ 'checked' if (form.get('is_active') or (product.is_active if product else true)) }}>
+            <span>Aktiv &ndash; nur aktive Produkte erscheinen in der Verzehrerfassung</span>
+          </label>
+        </div>
+
+        {% if product %}
+        <div class="notice notice-info">
+          {{ icon('shield') }}
+          <div>Der Preis wurde zuletzt geaendert am {{ product.updated_at|localdt('%d.%m.%Y %H:%M', timezone) }}.
+            Bereits erfasste Buchungen ({{ usage|default(0) }}+) behalten ihren alten Einzelpreis.</div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-foot">
+        <div class="row">
+          <a class="btn" href="{{ url_for('products.index') }}">{{ icon('arrow-left') }}<span>Abbrechen</span></a>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+            {{ icon('save') }}<span>{{ 'Aenderungen speichern' if product else 'Produkt anlegen' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+# ---------------------------------------------------------------------------
+# Secrets und lokale Konfiguration NIEMALS committen
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+config/local.ini
+config/*.local
+instance/
+instance/*
+
+# ---------------------------------------------------------------------------
+# Datenbanken und Backups
+# ---------------------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+backups/
+*.backup
+*.dump
+*.sql.gz
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtuelle Umgebungen
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# Test / Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.cache
+nosetests.xml
+
+# Type Checker / Linter
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pyre/
+
+# ---------------------------------------------------------------------------
+# IDE / Editor
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.fleet/
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Lokale Test-/Arbeitsdateien
+/tmp/
+/var/
+*.log

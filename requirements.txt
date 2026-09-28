@@ -1,0 +1,11 @@
+# PayPal Verzehrabrechnungssystem - Python Abhaengigkeiten
+# Install:  pip install -r requirements.txt
+
+Flask==3.0.3
+Werkzeug==3.0.4
+SQLAlchemy==2.0.35
+alembic==1.13.3
+APScheduler==3.10.4
+python-dotenv==1.0.1
+psycopg2-binary==2.9.9
+gunicorn==22.0.0

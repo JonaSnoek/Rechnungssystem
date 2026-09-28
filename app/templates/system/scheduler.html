@@ -1,0 +1,97 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Scheduler - {{ app_name }}{% endblock %}
+{% block page_title %}Scheduler{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">Serverseitige Tagesabrechnung</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('system.index') }}">{{ icon('arrow-left') }}<span>System</span></a>
+  <a class="btn" href="{{ url_for('settings.general', tab='billing') }}">{{ icon('gear') }}<span>Einstellungen</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="stack" style="max-width:840px">
+  <div class="notice {{ 'notice-success' if scheduler.running else 'notice-warning' }}">
+    {% if scheduler.running %}{{ icon('check') }}
+    <div><strong>Scheduler laeuft in diesem Webprozess.</strong>
+      Alle {{ 60 }} Sekunden wird geprueft, ob eine Abrechnung faellig ist.</div>
+    {% else %}{{ icon('alert') }}
+    <div><strong>Der Scheduler laeuft gerade nicht.</strong>
+      Starte ihn entweder ueber den Webprozess (<span class="mono">SCHEDULER_ENABLED=1</span>) oder
+      als eigenen Prozess: <span class="mono">python scheduler.py</span>.
+      Ohne Scheduler findet keine automatische Abrechnung statt.</div>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-3">
+    <div class="stat {{ 'stat-accent' if scheduler.enabled else '' }}">
+      <span class="stat-label">Automatische Abrechnung</span>
+      <span class="stat-value sm">{{ 'aktiv' if scheduler.enabled else 'inaktiv' }}</span>
+      <span class="stat-hint">Zeitpunkt {{ scheduler.billing_time }} Uhr</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Letzter erfolgreicher Lauf</span>
+      <span class="stat-value sm">
+        {{ scheduler.last_success_at|localdt('%d.%m. %H:%M', timezone) if scheduler.last_success_at else 'nie' }}
+      </span>
+      <span class="stat-hint">Zeitzone {{ scheduler.timezone }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Letzter abgerechneter Tag</span>
+      <span class="stat-value sm">
+        {{ scheduler.last_billed_period|dt(settings_obj.date_format) if scheduler.last_billed_period else 'noch keiner' }}
+      </span>
+      <span class="stat-hint">Catch-up: {{ 'an' if scheduler.catchup_enabled else 'aus' }}</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">{{ icon('clock') }}<h2>Details</h2></div>
+    <div class="card-body">
+      <table class="data">
+        <tbody>
+          <tr><th>Prozess</th><td>{{ 'laeuft' if scheduler.running else 'gestoppt' }}</td></tr>
+          <tr><th>Abrechnung</th><td>{{ 'aktiv' if scheduler.enabled else 'inaktiv' }}</td></tr>
+          <tr><th>Geplante Uhrzeit</th><td>{{ scheduler.billing_time }} Uhr ({{ scheduler.timezone }})</td></tr>
+          <tr><th>Letzter Tick</th>
+              <td>{{ scheduler.last_tick_at|localdt('%d.%m.%Y %H:%M:%S', timezone) if scheduler.last_tick_at else '-' }}</td></tr>
+          <tr><th>Naechste faellige Ausfuehrung</th>
+              <td>{{ scheduler.next_run_at|localdt('%d.%m.%Y %H:%M', timezone) if scheduler.next_run_at else 'keine (inaktiv)' }}</td></tr>
+          <tr><th>Heartbeat</th>
+              <td>{{ scheduler.heartbeat|localdt('%d.%m.%Y %H:%M:%S', timezone) if scheduler.heartbeat else '-' }}</td></tr>
+          <tr><th>Fehlgeschlagene Laeufe in Folge</th><td>{{ scheduler.consecutive_failures }}</td></tr>
+          {% if scheduler.last_error %}
+          <tr><th>Letzter Fehler</th><td class="error-text small">{{ scheduler.last_error }}</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-foot row">
+      <form method="post" action="{{ url_for('system.scheduler_toggle') }}" class="inline-form">
+        {{ csrf_field() }}
+        <button class="btn" type="submit">
+          {{ 'Automatische Abrechnung deaktivieren' if scheduler.enabled else 'Automatische Abrechnung aktivieren' }}
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('system.scheduler_tick') }}" class="inline-form">
+        {{ csrf_field() }}
+        <button class="btn btn-primary" type="submit"
+                data-ask="Einen Scheduler-Durchlauf sofort ausloesen? Es wird nur abgerechnet, wenn etwas faellig ist.">
+          {{ icon('refresh') }}<span>Jetzt pruefen</span></button>
+      </form>
+    </div>
+  </div>
+
+  <div class="notice notice-info">
+    {{ icon('shield') }}
+    <div>
+      <strong>So wird doppelte Abrechnung verhindert:</strong>
+      <ul style="margin:.3rem 0 0;padding-left:1.1rem">
+        <li>Pro Zeitraum laeuft hoechstens eine Abrechnung (Wassermarke <span class="mono">last_billed_period</span>).</li>
+        <li>Die Datenbank verhindert per Unique-Constraint zwei Rechnungen fuer dieselbe Person und denselben Tag.</li>
+        <li>Ein Datenbank-Lock verhindert, dass zwei Prozesse gleichzeitig abrechnen.</li>
+        <li>Erst nach erfolgreichem E-Mail-Versand gilt eine Buchung als abgerechnet.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

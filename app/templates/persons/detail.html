@@ -1,0 +1,122 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field, status_badge %}
+{% block title %}{{ person.full_name }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ person.full_name }}{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  <span class="badge {{ 'badge-aktiv' if person.is_active else 'badge-inaktiv' }}">{{ 'Aktiv' if person.is_active else 'Inaktiv' }}</span>
+  &middot; {{ person.email }}
+  &middot; seit {{ person.created_at|dt('%d.%m.%Y') }}
+</span>
+{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('consumption.entry', person_id=person.id) }}">{{ icon('plus') }}<span>Verzehr</span></a>
+  <a class="btn" href="{{ url_for('persons.export_csv', person_id=person.id) }}">{{ icon('download') }}<span>CSV</span></a>
+  <a class="btn btn-primary" href="{{ url_for('invoices.person_billing', person_id=person.id) }}">{{ icon('invoice') }}<span>Abrechnen</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  <div class="grid grid-4">
+    <div class="stat {{ 'stat-accent' if balance else '' }}">
+      <span class="stat-label">Offener Betrag</span>
+      <span class="stat-value">{{ balance|money(currency) }}</span>
+      <a class="stat-hint" href="{{ url_for('invoices.person_billing', person_id=person.id) }}">jetzt abrechnen</a>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Buchungen gesamt</span>
+      <span class="stat-value">{{ consumptions|length }}</span>
+      <span class="stat-hint">letzte {{ consumptions|length }} angezeigt</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Abrechnungen</span>
+      <span class="stat-value">{{ invoices|length }}</span>
+      <span class="stat-hint">davon {{ invoices|selectattr('is_paid')|list|length }} bezahlt</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Stammdaten</span>
+      <span class="stat-value sm">#{{ person.id }}</span>
+      <a class="stat-hint" href="{{ url_for('persons.edit', person_id=person.id) }}">bearbeiten</a>
+    </div>
+  </div>
+
+  <div class="grid grid-sidebar">
+    <div class="card">
+      <div class="card-head">{{ icon('clock') }}<h2>Buchungshistorie</h2></div>
+      {% if consumptions %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Zeitpunkt</th><th>Produkt</th>
+              <th class="num">Menge</th><th class="num">Einzelpreis</th>
+              <th class="num">Summe</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in consumptions %}
+            <tr>
+              <td class="nowrap">{{ c.created_at|localdt('%d.%m.%Y %H:%M', timezone) }}</td>
+              <td>
+                {{ c.product_name }}
+                {% if c.note %}<div class="tiny subtle">{{ c.note }}</div>{% endif %}
+              </td>
+              <td class="num"><span class="qty-badge">{{ c.quantity }}</span></td>
+              <td class="num">{{ c.unit_price_cents|money(c.currency) }}</td>
+              <td class="num strong">{{ c.total_cents|money(c.currency) }}</td>
+              <td>{{ c.status|status_badge }}</td>
+              <td>
+                <div class="row-actions">
+                  {% if c.status.value == 'STORNIERT' %}
+                  <form method="post" action="{{ url_for('consumption.reopen', consumption_id=c.id) }}">
+                    {{ csrf_field() }}<button class="btn btn-sm" type="submit" title="Wieder aktivieren">{{ icon('refresh') }}</button>
+                  </form>
+                  {% elif c.status.value == 'OFFEN' %}
+                  <form method="post" action="{{ url_for('consumption.cancel', consumption_id=c.id) }}"
+                        data-confirm="Diese Buchung wirklich stornieren?">
+                    {{ csrf_field() }}<button class="btn btn-sm" type="submit" title="Stornieren">{{ icon('x') }}</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <h3>Noch keine Buchungen</h3>
+        <a class="btn btn-primary" href="{{ url_for('consumption.entry', person_id=person.id) }}">Verzehr erfassen</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head">{{ icon('invoice') }}<h2>Abrechnungshistorie</h2></div>
+      {% if invoices %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Nummer</th><th>Datum</th><th class="num">Betrag</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for inv in invoices %}
+            <tr>
+              <td><a class="mono" href="{{ url_for('invoices.detail', invoice_id=inv.id) }}">{{ inv.invoice_number }}</a></td>
+              <td class="nowrap">{{ inv.period_date|dt(settings_obj.date_format) }}</td>
+              <td class="num strong">{{ inv.total_cents|money(inv.currency) }}</td>
+              <td>
+                {{ inv.status|status_badge }}
+                <div class="tiny">{{ inv.payment_status|status_badge }}</div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state"><p class="muted small">Noch keine Abrechnungen.</p></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,413 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Einstellungen - {{ app_name }}{% endblock %}
+{% block page_title %}Einstellungen{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  {% if tab == 'paypal' %}PayPal.Me-Benutzername, Waehrung und Link-Basis
+  {% elif tab == 'billing' %}Automatische Tagesabrechnung, Zeitpunkt, Zeitzone, Rechnungsnummern
+  {% elif tab == 'email' %}Betreff- und Text-/HTML-Vorlagen der Abrechnungs-E-Mail
+  {% elif tab == 'smtp' %}SMTP-Server und Absenderadresse
+  {% else %}Anwendungsname, URL und Datumsformat{% endif %}
+</span>
+{% endblock %}
+
+{% block content %}
+<nav class="tabs">
+  {% for key, label in tabs %}
+  <a class="tab {{ 'active' if tab == key }}" href="{{ url_for('settings.general', tab=key) }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+
+{% if errors %}
+<div class="notice notice-danger mb-2">
+  {{ icon('alert') }}
+  <div>{% for key, message in errors.items() %}<div>{{ message }}</div>{% endfor %}</div>
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('settings.general', tab=tab) }}">
+  {{ csrf_field() }}
+
+  {% if tab == 'paypal' %}
+  <div class="grid grid-sidebar">
+    <div class="card">
+      <div class="card-head">{{ icon('paypal') }}<h2>PayPal.Me</h2></div>
+      <div class="card-body">
+        <div class="field {{ 'has-error' if errors.get('paypal_me_username') }}">
+          <label for="paypal_me_username">PayPal.Me-Benutzername *</label>
+          <input type="text" id="paypal_me_username" name="paypal_me_username" required maxlength="25"
+                 autocapitalize="characters" spellcheck="false"
+                 value="{{ form.get('paypal_me_username') or settings.paypal_username }}">
+          <p class="hint">Wird ausschliesslich in der Datenbank gespeichert &ndash;
+            niemals im Quellcode, niemals in der E-Mail als Passwort.</p>
+          {% if errors.get('paypal_me_username') %}<p class="error-text">{{ errors.paypal_me_username }}</p>{% endif %}
+        </div>
+
+        <div class="field-row">
+          <div class="field {{ 'has-error' if errors.get('currency') }}">
+            <label for="currency">Waehrung *</label>
+            <select id="currency" name="currency">
+              {% for code in currencies %}
+              <option value="{{ code }}" {{ 'selected' if (form.get('currency') or settings.currency) == code }}>{{ code }}</option>
+              {% endfor %}
+            </select>
+            <p class="hint">Bestimmt Betraege und PayPal-Link.</p>
+          </div>
+          <div class="field {{ 'has-error' if errors.get('paypal_base_url') }}">
+            <label for="paypal_base_url">Link-Basis *</label>
+            <input type="url" id="paypal_base_url" name="paypal_base_url" required maxlength="200"
+                   value="{{ form.get('paypal_base_url') or settings.paypal_base_url or default_paypal_base_url }}">
+            {% if errors.get('paypal_base_url') %}<p class="error-text">{{ errors.paypal_base_url }}</p>{% endif %}
+          </div>
+        </div>
+
+        <div class="notice notice-info">
+          {{ icon('shield') }}
+          <div>Linkformat: <span class="mono">BENAME/BETRAG{{ settings.currency }}</span> &ndash;
+            z. B. <span class="mono">{{ (settings.paypal_username or 'BENUTZER') }}/5.90{{ settings.currency }}</span>.
+            Es findet <strong>keine</strong> Zahlungspruefung statt; Zahlungen werden manuell bestaetigt.</div>
+        </div>
+      </div>
+      <div class="card-foot row">
+        <span class="muted small">Aenderung wirkt sofort auf neu erstellte Abrechnungen.</span>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+          {{ icon('save') }}<span>Speichern</span></button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">{{ icon('mail') }}<h2>Link testen</h2></div>
+        <div class="card-body">
+          <div class="field">
+            <label for="test_amount">Testbetrag</label>
+            <input type="text" id="test_amount" name="test_amount" inputmode="decimal" value="5,90"
+                   style="max-width:140px">
+            <p class="hint">Nur zur Kontrolle &ndash; es wird nichts versendet.</p>
+          </div>
+        </div>
+        <div class="card-foot">
+          <button class="btn" type="submit" formaction="{{ url_for('settings.test_paypal_link') }}"
+                  formnovalidate>{{ icon('paypal') }}<span>Link erzeugen</span></button>
+        </div>
+      </div>
+      {% if preview %}
+      <div class="card">
+        <div class="card-head">{{ icon('invoice') }}<h2>Beispiel-Abrechnung</h2></div>
+        <div class="card-body">
+          <p class="label">Betreff</p>
+          <p class="small">{{ preview.subject }}</p>
+          <p class="label">PayPal-Link</p>
+          <a class="mono small" href="{{ preview.link }}" target="_blank" rel="noopener noreferrer">{{ preview.link }}</a>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% elif tab == 'billing' %}
+  <div class="card" style="max-width:760px">
+    <div class="card-head">{{ icon('clock') }}<h2>Automatische Tagesabrechnung</h2></div>
+    <div class="card-body">
+      <div class="field">
+        <label class="switch">
+          <input type="checkbox" name="auto_billing_enabled" value="1"
+                 {{ 'checked' if (form.get('auto_billing_enabled') or (not form and settings.auto_billing_enabled)) }}>
+          <span><strong>Abrechnung aktiv</strong><br>
+            <span class="muted small">Der Scheduler-Prozess prueft minuetlich, ob {{ settings.auto_billing_time }} Uhr erreicht ist.</span></span>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <div class="field {{ 'has-error' if errors.get('auto_billing_time') }}">
+          <label for="auto_billing_time">Uhrzeit *</label>
+          <input type="time" id="auto_billing_time" name="auto_billing_time" required
+                 value="{{ form.get('auto_billing_time') or settings.auto_billing_time }}">
+          <p class="hint">Feste Uhrzeit, kein Intervall &ndash; so wird garantiert nur einmal pro Tag abgerechnet.</p>
+        </div>
+        <div class="field {{ 'has-error' if errors.get('timezone') }}">
+          <label for="timezone">Zeitzone *</label>
+          <select id="timezone" name="timezone">
+            {% for tz in timezones %}
+            <option value="{{ tz }}" {{ 'selected' if (form.get('timezone') or settings.timezone) == tz }}>{{ tz }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" name="auto_catchup_enabled" value="1"
+                 {{ 'checked' if (form.get('auto_catchup_enabled') or (not form and settings.auto_catchup_enabled)) }}>
+          <span>Verpasste Abrechnungen automatisch nachholen</span>
+        </label>
+        <p class="hint">Beispiel: Server war um 17:00 offline, startet um 20:00 wieder &ndash;
+          der Zeitraum wird automatisch abgerechnet. Durch die eindeutige Zuordnung
+          Person/Zeitraum entsteht keine Doppelabrechnung.</p>
+      </div>
+
+      <div class="field">
+        <label for="invoice_number_prefix">Praefix der Rechnungsnummer *</label>
+        <input type="text" id="invoice_number_prefix" name="invoice_number_prefix" required maxlength="20"
+               value="{{ form.get('invoice_number_prefix') or settings.get('invoice_number_prefix') or 'RE-' }}">
+        <p class="hint">Format: PREFIX-JJJJMMTT-NUMMER, z. B. RE-20260928-0001</p>
+      </div>
+
+      <div class="notice notice-info">
+        {{ icon('shield') }}
+        <div>Der Scheduler laeuft als eigener Prozess (<span class="mono">python scheduler.py</span>).
+          Die Abrechnung funktioniert dadurch auch, wenn kein Browser geoeffnet ist.</div>
+      </div>
+    </div>
+    <div class="card-foot row">
+      <a class="btn" href="{{ url_for('system.scheduler_view') }}">{{ icon('clock') }}<span>Scheduler-Status</span></a>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+        {{ icon('save') }}<span>Speichern</span></button>
+    </div>
+  </div>
+
+  {% elif tab == 'smtp' %}
+  <div class="grid grid-sidebar">
+    <div class="card">
+      <div class="card-head">{{ icon('mail') }}<h2>SMTP-Server</h2></div>
+      <div class="card-body">
+        <div class="field-row-3 field-row">
+          <div class="field {{ 'has-error' if errors.get('smtp_host') }}">
+            <label for="smtp_host">Server *</label>
+            <input type="text" id="smtp_host" name="smtp_host" required maxlength="200"
+                   value="{{ form.get('smtp_host') or settings.get('smtp_host') }}">
+            {% if errors.get('smtp_host') %}<p class="error-text">{{ errors.smtp_host }}</p>{% endif %}
+          </div>
+          <div class="field {{ 'has-error' if errors.get('smtp_port') }}">
+            <label for="smtp_port">Port *</label>
+            <input type="number" id="smtp_port" name="smtp_port" required min="1" max="65535"
+                   value="{{ form.get('smtp_port') or settings.get('smtp_port') or '587' }}">
+          </div>
+          <div class="field">
+            <label for="smtp_encryption">Verschluesselung</label>
+            <select id="smtp_encryption" name="smtp_encryption">
+              {% for opt in [('starttls','STARTTLS'), ('ssl','SSL/TLS'), ('none','ohne')] %}
+              <option value="{{ opt[0] }}" {{ 'selected' if (form.get('smtp_encryption') or settings.smtp_encryption) == opt[0] }}>{{ opt[1] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="smtp_username">Benutzername</label>
+            <input type="text" id="smtp_username" name="smtp_username" autocomplete="off" maxlength="200"
+                   value="{{ form.get('smtp_username') or settings.get('smtp_username') }}">
+          </div>
+          <div class="field">
+            <label for="smtp_password">Passwort</label>
+            <input type="password" id="smtp_password" name="smtp_password" autocomplete="new-password"
+                   placeholder="{{ 'gesetzt - neu eingeben zum Aendern' if smtp_password_set else 'noch nicht gesetzt' }}">
+            <p class="hint">
+              {% if smtp_password_from_env %}
+                <span class="badge badge-neutral">aus Umgebungsvariable SMTP_PASSWORD</span>
+              {% elif smtp_password_set %}
+                <span class="badge badge-neutral">gespeichert in {{ 'Secrets-Datei' }}</span>
+              {% else %}
+                <span class="badge badge-neutral">nicht gesetzt</span>
+              {% endif %}
+              {% if not secrets_writable %}
+                <br>Der Secret-Speicher ist nicht beschreibbar &ndash; bitte SMTP_PASSWORD als
+                Umgebungsvariable setzen.
+              {% endif %}
+            </p>
+            {% if smtp_password_set %}
+            <label class="checkbox">
+              <input type="checkbox" name="clear_password" value="1">
+              <span>Gespeichertes Passwort loeschen</span>
+            </label>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="field-row-3 field-row">
+          <div class="field {{ 'has-error' if errors.get('mail_from_name') }}">
+            <label for="mail_from_name">Absendername *</label>
+            <input type="text" id="mail_from_name" name="mail_from_name" required maxlength="120"
+                   value="{{ form.get('mail_from_name') or settings.get('mail_from_name') or 'Verzehrabrechnung' }}">
+          </div>
+          <div class="field {{ 'has-error' if errors.get('mail_from_address') }}">
+            <label for="mail_from_address">Absender-E-Mail *</label>
+            <input type="email" id="mail_from_address" name="mail_from_address" required
+                   value="{{ form.get('mail_from_address') or settings.get('mail_from_address') }}">
+          </div>
+          <div class="field">
+            <label for="mail_reply_to">Reply-To</label>
+            <input type="email" id="mail_reply_to" name="mail_reply_to"
+                   value="{{ form.get('mail_reply_to') or settings.get('mail_reply_to') }}">
+          </div>
+        </div>
+
+        <div class="notice {{ 'notice-success' if email_configured else 'notice-warning' }}">
+          {% if email_configured %}{{ icon('check') }}
+          <div><strong>SMTP ist konfiguriert.</strong> {{ now|localdt('%d.%m.%Y %H:%M', timezone) }} in {{ timezone }} &ndash;
+            der Versand kann getestet werden.</div>
+          {% else %}{{ icon('alert') }}
+          <div><strong>SMTP ist noch nicht vollstaendig konfiguriert.</strong>
+            Solange der Server oder die Absenderadresse fehlt, schlaegt der Versand fehl.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-foot row">
+        <button class="btn" type="submit" formaction="{{ url_for('settings.test_email') }}"
+                formnovalidate data-label="Test laeuft...">{{ icon('mail') }}<span>Test-E-Mail senden</span></button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+          {{ icon('save') }}<span>Speichern</span></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">{{ icon('shield') }}<h2>Sicherheit der Zugangsdaten</h2></div>
+      <div class="card-body">
+        <p class="small">
+          Das SMTP-Passwort wird <strong>nicht</strong> in der Datenbank gespeichert und
+          erscheint daher auch nicht in einem JSON-Backup. Ablage:
+        </p>
+        <ul class="small" style="padding-left:1.1rem;margin:.4rem 0">
+          <li>Umgebungsvariable <span class="mono">SMTP_PASSWORD</span> (bevorzugt)</li>
+          <li>sonsten <span class="mono">instance/secrets.env</span> mit Rechten 0600</li>
+        </ul>
+        <p class="small muted">
+          <span class="mono">SECRET_KEY</span> wird beim ersten Start automatisch und
+          zufaellig erzeugt. Fuer einen Umzug auf einen anderen Server bitte die Datei
+          <span class="mono">instance/secrets.env</span> mitkopieren, sonst werden alle
+          Sessions ungueltig.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {% elif tab == 'email' %}
+  <div class="grid grid-sidebar">
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">{{ icon('mail') }}<h2>Betreff</h2></div>
+        <div class="card-body">
+          <div class="field">
+            <input type="text" name="email_subject_template" required maxlength="300"
+                   value="{{ form.get('email_subject_template') or settings.get('email_subject_template') }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('invoice') }}<h2>Text-Vorlage (reines Text)</h2></div>
+        <div class="card-body">
+          <div class="field">
+            <textarea name="email_body_text_template" rows="16" required maxlength="20000" class="mono"
+                      style="font-size:.78rem">{{ form.get('email_body_text_template') or settings.get('email_body_text_template') }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('invoice') }}<h2>HTML-Vorlage</h2></div>
+        <div class="card-body">
+          <div class="field">
+            <textarea name="email_body_html_template" rows="16" required maxlength="40000" class="mono"
+                      style="font-size:.78rem">{{ form.get('email_body_html_template') or settings.get('email_body_html_template') }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('shield') }}<h2>Verfuegbare Platzhalter</h2></div>
+        <div class="card-body">
+          <div class="code-block">
+{app_name}          Name der Anwendung
+{vorname}           Vorname der Person
+{nachname}          Nachname der Person
+{person}            Vollstaendiger Name
+{datum}             Verbrauchstag im eingestellten Format
+{produkte}          Tabelle der Positionen (Text)
+{produkte_html}     Tabelle der Positionen (HTML)
+{gesamtbetrag}      Summe, formatiert mit Waehrung
+{paypal_link}       Vollstaendiger PayPal.Me-Link
+{paypal_benutzer}   PayPal.Me-Benutzername
+{rechnungsnummer}   Automatische Rechnungsnummer
+          </div>
+        </div>
+      </div>
+
+      <div class="card-foot card">
+        <div class="row">
+          <span class="muted small">Aenderungen gelten fuer neu versendete E-Mails.</span>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+            {{ icon('save') }}<span>Speichern</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">{{ icon('search') }}<h2>Vorschau</h2></div>
+      <div class="card-body">
+        {% if preview %}
+        <p class="label">Betreff</p>
+        <p class="small strong">{{ preview.subject }}</p>
+
+        <p class="label">Text</p>
+        <pre class="code-block">{{ preview.text }}</pre>
+
+        <p class="label">HTML-Vorschau</p>
+        <div class="preview-frame">{{ preview.html|safe }}</div>
+
+        <p class="label">PayPal-Link</p>
+        <a class="mono small" href="{{ preview.link }}" target="_blank" rel="noopener noreferrer">{{ preview.link }}</a>
+        {% else %}
+        <p class="muted small">Keine Vorschau verfuegbar.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card" style="max-width:660px">
+    <div class="card-head">{{ icon('gear') }}<h2>System-Einstellungen</h2></div>
+    <div class="card-body">
+      <div class="field {{ 'has-error' if errors.get('app_name') }}">
+        <label for="app_name">Anwendungsname *</label>
+        <input type="text" id="app_name" name="app_name" required maxlength="80"
+               value="{{ form.get('app_name') or settings.app_name }}">
+        {% if errors.get('app_name') %}<p class="error-text">{{ errors.app_name }}</p>{% endif %}
+      </div>
+      <div class="field {{ 'has-error' if errors.get('app_url') }}">
+        <label for="app_url">Oeffentliche URL</label>
+        <input type="url" id="app_url" name="app_url" maxlength="200"
+               value="{{ form.get('app_url') or settings.app_url }}"
+               placeholder="https://verzehr.example.com">
+        <p class="hint">Wird fuer PayPal-Backlinks und den E-Mail-Fussbereich verwendet.</p>
+      </div>
+      <div class="field {{ 'has-error' if errors.get('date_format') }}">
+        <label for="date_format">Datumsformat *</label>
+        <input type="text" id="date_format" name="date_format" required maxlength="40" class="mono"
+               value="{{ form.get('date_format') or settings.date_format }}">
+        <p class="hint">Python-Syntax, z. B. %d.%m.%Y oder %Y-%m-%d</p>
+        {% if errors.get('date_format') %}<p class="error-text">{{ errors.date_format }}</p>{% endif %}
+      </div>
+      <div class="field">
+        <label for="retain_data_months">Datenaufbewahrung (Monate)</label>
+        <input type="number" id="retain_data_months" name="retain_data_months" min="0" max="240"
+               value="{{ settings.get('retain_data_months') or '0' }}">
+        <p class="hint">0 = unbegrenzt. Wird aktuell nur angezeigt, Loeschung erfolgt manuell.</p>
+      </div>
+    </div>
+    <div class="card-foot row">
+      <span class="muted small">Datenbank und Scheduler: <a href="{{ url_for('system.index') }}">System</a></span>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+        {{ icon('save') }}<span>Speichern</span></button>
+    </div>
+  </div>
+  {% endif %}
+</form>
+{% endblock %}

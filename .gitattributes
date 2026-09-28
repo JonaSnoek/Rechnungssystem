@@ -1,0 +1,24 @@
+# Zeilenenden verbindlich auf LF halten.
+#
+# Notwendig fuer die Shell-Skripte und die systemd-Units: eine CRLF-Zeile
+# laesst ./install.sh mit "bad interpreter: /usr/bin/env bash^M" scheitern
+# und bricht systemd-Parsing.
+
+* text=auto eol=lf
+
+# Binare Dateien niemals anfassen
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+*.sqlite binary
+
+# Ausfuehrbar auf dem Server, auch wenn das Bit im Dateisystem fehlt
+# (z. B. nach einem Download ueber die Weboberflaeche).
+install.sh text eol=lf
+update.sh  text eol=lf
+uninstall.sh text eol=lf
+scripts/*.sh text eol=lf
+scripts/smoke.py text eol=lf

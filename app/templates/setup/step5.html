@@ -1,0 +1,65 @@
+﻿{% extends "setup/base_setup.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block step %}
+<div class="card">
+  <div class="card-head">{{ icon('clock') }}<h2>Schritt 5 &ndash; Abrechnung</h2></div>
+  <div class="card-body">
+    <form method="post">
+      {{ csrf_field() }}
+      <div class="field">
+        <label class="switch">
+          <input type="checkbox" name="auto_billing_enabled" value="1"
+                 {{ 'checked' if settings.auto_billing_enabled }}>
+          <span><strong>Automatische Tagesabrechnung aktivieren</strong><br>
+            <span class="muted small">Der Server prueft jede Minute, ob die konfigurierte Uhrzeit erreicht ist,
+            und versendet zu diesem Zeitpunkt genau eine E-Mail je Person mit offenen Buchungen.</span></span>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <div class="field {{ 'has-error' if errors.get('auto_billing_time') }}">
+          <label for="auto_billing_time">Uhrzeit *</label>
+          <input type="time" id="auto_billing_time" name="auto_billing_time" required
+                 value="{{ settings.auto_billing_time }}">
+          <p class="hint">Format HH:MM, z. B. 17:00, 16:00, 18:30, 23:00</p>
+          {% if errors.get('auto_billing_time') %}<p class="error-text">{{ errors.auto_billing_time }}</p>{% endif %}
+        </div>
+        <div class="field {{ 'has-error' if errors.get('timezone') }}">
+          <label for="timezone">Zeitzone *</label>
+          <select id="timezone" name="timezone">
+            {% for tz in ['Europe/Berlin','Europe/Vienna','Europe/Zurich','Europe/Amsterdam','Europe/Paris',
+                          'Europe/Madrid','Europe/Rome','Europe/Prague','Europe/Lisbon','Europe/London',
+                          'America/New_York','America/Chicago','America/Los_Angeles','UTC'] %}
+            <option value="{{ tz }}" {{ 'selected' if settings.timezone == tz }}>{{ tz }}</option>
+            {% endfor %}
+          </select>
+          <p class="hint">Bezug fuer Tagesgrenzen und "heute".</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" name="auto_catchup_enabled" value="1" {{ 'checked' if settings.auto_catchup_enabled }}>
+          <span>Verpasste Abrechnungen nachholen<br>
+            <span class="muted small">War der Server zum Abrechnungszeitpunkt nicht erreichbar, wird die
+            Abrechnung beim naechsten Start automatisch nachgeholt. Doppelte Abrechnungen sind
+            technisch ausgeschlossen.</span></span>
+        </label>
+      </div>
+
+      <div class="notice notice-info">
+        {{ icon('shield') }}
+        <div>Der Scheduler laeuft serverseitig im eigenen Prozess. Er haengt <strong>nicht</strong>
+          von einem offenen Browser-Tab ab.</div>
+      </div>
+
+      <div class="form-actions">
+        <a class="btn" href="{{ url_for('setup.step', number=4) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+        <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+          {{ icon('save') }}<span>Speichern und fortfahren</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

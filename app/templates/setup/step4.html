@@ -1,0 +1,84 @@
+﻿{% extends "setup/base_setup.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block step %}
+<div class="card">
+  <div class="card-head">{{ icon('mail') }}<h2>Schritt 4 &ndash; E-Mail (SMTP)</h2></div>
+  <div class="card-body">
+    <p class="muted small">
+      Ueber diesen SMTP-Server werden die Abrechnungs-E-Mails versendet. Das Passwort wird
+      <strong>nicht</strong> in der Datenbank, sondern ausschliesslich in einer lokalen
+      Datei mit Dateirechten 0600 bzw. als Umgebungsvariable gespeichert.
+    </p>
+
+    <form method="post">
+      {{ csrf_field() }}
+      <div class="field-row-3 field-row">
+        <div class="field {{ 'has-error' if errors.get('smtp_host') }}">
+          <label for="smtp_host">SMTP-Server *</label>
+          <input type="text" id="smtp_host" name="smtp_host" required
+                 value="{{ settings.get('smtp_host') }}" placeholder="smtp.example.com">
+          {% if errors.get('smtp_host') %}<p class="error-text">{{ errors.smtp_host }}</p>{% endif %}
+        </div>
+        <div class="field {{ 'has-error' if errors.get('smtp_port') }}">
+          <label for="smtp_port">Port *</label>
+          <input type="number" id="smtp_port" name="smtp_port" required min="1" max="65535"
+                 value="{{ settings.get('smtp_port') or '587' }}">
+          {% if errors.get('smtp_port') %}<p class="error-text">{{ errors.smtp_port }}</p>{% endif %}
+        </div>
+        <div class="field">
+          <label for="smtp_encryption">Verschluesselung</label>
+          <select id="smtp_encryption" name="smtp_encryption">
+            {% for opt in [('starttls','STARTTLS (empfohlen)'), ('ssl','SSL/TLS (direkt)'), ('none','Ohne')] %}
+            <option value="{{ opt[0] }}" {{ 'selected' if settings.smtp_encryption == opt[0] }}>{{ opt[1] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="smtp_username">SMTP-Benutzername</label>
+          <input type="text" id="smtp_username" name="smtp_username" autocomplete="off"
+                 value="{{ settings.get('smtp_username') }}">
+          <p class="hint">Leer lassen, wenn der Server ohne Authentifizierung arbeitet.</p>
+        </div>
+        <div class="field {{ 'has-error' if errors.get('smtp_password') }}">
+          <label for="smtp_password">SMTP-Passwort</label>
+          <input type="password" id="smtp_password" name="smtp_password" autocomplete="new-password"
+                 placeholder="{{ 'gespeichert - neu eingeben zum Aendern' if has_smtp_password else 'noch nicht gesetzt' }}">
+          {% if errors.get('smtp_password') %}<p class="error-text">{{ errors.smtp_password }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div class="field-row-3 field-row">
+        <div class="field">
+          <label for="mail_from_name">Absendername *</label>
+          <input type="text" id="mail_from_name" name="mail_from_name" required maxlength="120"
+                 value="{{ settings.get('mail_from_name') or 'Verzehrabrechnung' }}">
+        </div>
+        <div class="field {{ 'has-error' if errors.get('mail_from_address') }}">
+          <label for="mail_from_address">Absender-E-Mail *</label>
+          <input type="email" id="mail_from_address" name="mail_from_address" required
+                 value="{{ settings.get('mail_from_address') }}" placeholder="abrechnung@example.com">
+          {% if errors.get('mail_from_address') %}<p class="error-text">{{ errors.mail_from_address }}</p>{% endif %}
+        </div>
+        <div class="field">
+          <label for="test_recipient">Test-Empfaenger</label>
+          <input type="email" id="test_recipient" name="test_recipient"
+                 value="{{ settings.get('mail_from_address') }}" placeholder="deine@adresse.de">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <a class="btn" href="{{ url_for('setup.step', number=3) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+        <span class="spacer"></span>
+        <button class="btn" type="submit" name="action" value="test" formnovalidate
+                data-label="Test laeuft...">{{ icon('mail') }}<span>Test-E-Mail senden</span></button>
+        <button class="btn btn-primary" type="submit" name="action" value="save" data-label="Wird gespeichert...">
+          {{ icon('save') }}<span>Speichern und fortfahren</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

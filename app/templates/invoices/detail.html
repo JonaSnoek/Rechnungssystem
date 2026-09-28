@@ -1,0 +1,198 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field, status_badge %}
+{% block title %}{{ invoice.invoice_number }} - {{ app_name }}{% endblock %}
+{% block page_title %}<span class="mono">{{ invoice.invoice_number }}</span>{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  {{ person.full_name if person else '-' }} &middot; {{ invoice.period_date|dt(settings_obj.date_format) }}
+  &middot; {{ invoice.total_cents|money(invoice.currency) }}
+  &middot; {{ invoice.status|status_badge }}
+  {{ invoice.payment_status|status_badge }}
+</span>
+{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('invoices.index') }}">{{ icon('arrow-left') }}<span>Alle Abrechnungen</span></a>
+  {% if invoice.status.value in ('OFFEN', 'FEHLGESCHLAGEN') %}
+  <form method="post" action="{{ url_for('invoices.resend', invoice_id=invoice.id) }}" class="inline-form">
+    {{ csrf_field() }}
+    <button class="btn" type="submit" data-ask="Abrechnung {{ invoice.invoice_number }} erneut versenden?">
+      {{ icon('mail') }}<span>Erneut senden</span>
+    </button>
+  </form>
+  {% endif %}
+  {% if invoice.status.value != 'STORNIERT' %}
+  {% if invoice.payment_status.value != 'BEZAHLT' %}
+  <form method="post" action="{{ url_for('invoices.mark_paid', invoice_id=invoice.id) }}" class="inline-form">
+    {{ csrf_field() }}
+    <button class="btn btn-success" type="submit"
+            data-ask="Betrag {{ invoice.total_cents|money(invoice.currency) }} als bezahlt markieren?">
+      {{ icon('check') }}<span>Als bezahlt</span>
+    </button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('invoices.mark_unpaid', invoice_id=invoice.id) }}" class="inline-form">
+    {{ csrf_field() }}
+    <button class="btn" type="submit" data-ask="Zahlungsstatus zuruecksetzen?">{{ icon('refresh') }}<span>Zahlung offen</span></button>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('invoices.cancel', invoice_id=invoice.id) }}" class="inline-form">
+    {{ csrf_field() }}
+    <button class="btn btn-danger" type="submit"
+            data-ask="Abrechnung {{ invoice.invoice_number }} stornieren? Die Buchungen werden wieder offen und koennen erneut abgerechnet werden.">
+      {{ icon('x') }}<span>Stornieren</span>
+    </button>
+  </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  {% if invoice.last_error %}
+  <div class="notice notice-danger">
+    {{ icon('alert') }}
+    <div><strong>Letzter Versuchfehler ({{ invoice.send_attempts }} Versuche):</strong>
+      <div class="mono small">{{ invoice.last_error }}</div>
+      <div class="small">Die zugehoerigen Buchungen bleiben <strong>offen</strong>, bis der Versand erfolgreich war.</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-sidebar">
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">
+          {{ icon('invoice') }}<h2>Abrechnungspositionen</h2>
+          <span class="spacer"></span>
+          <span class="muted small">{{ items|length }} Position(en)</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr><th class="num">#</th><th>Produkt</th><th class="num">Menge</th>
+                  <th class="num">Einzelpreis</th><th class="num">Summe</th></tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+              <tr>
+                <td class="num subtle">{{ loop.index }}</td>
+                <td>{{ item.product_name }}</td>
+                <td class="num"><span class="qty-badge">{{ item.quantity }}</span></td>
+                <td class="num">{{ item.unit_price_cents|money(invoice.currency) }}</td>
+                <td class="num strong">{{ item.total_cents|money(invoice.currency) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4">Gesamtbetrag</td>
+                <td class="num">{{ invoice.total_cents|money(invoice.currency) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('paypal') }}<h2>Zahlung</h2></div>
+        <div class="card-body">
+          {% if invoice.paypal_link %}
+          <div class="paypal-box">
+            <a class="paypal-link mono" href="{{ invoice.paypal_link }}" target="_blank" rel="noopener noreferrer">{{ invoice.paypal_link }}</a>
+            <div class="row mt-1">
+              <a class="btn btn-sm" href="{{ invoice.paypal_link }}" target="_blank" rel="noopener noreferrer">
+                {{ icon('paypal') }}<span>Link oeffnen</span>
+              </a>
+              <a class="btn btn-sm" href="mailto:{{ person.email if person }}?subject={{ ('Zahlung ' ~ invoice.invoice_number)|urlencode }}">
+                {{ icon('mail') }}<span>Per E-Mail senden</span>
+              </a>
+            </div>
+          </div>
+          {% else %}
+          <p class="muted small">Kein PayPal-Link vorhanden. Bitte den PayPal.Me-Benutzernamen in den
+            <a href="{{ url_for('settings.general', tab='paypal') }}">Einstellungen</a> pr&uuml;fen.</p>
+          {% endif %}
+
+          {% if invoice.paid_at %}
+          <div class="notice notice-success mt-2">
+            {{ icon('check') }}
+            <div>Als bezahlt markiert am {{ invoice.paid_at|localdt('%d.%m.%Y %H:%M', timezone) }}
+              {%- if invoice.paid_amount_cents %} ({{ invoice.paid_amount_cents|money(invoice.currency) }}){% endif %}.
+              <br><span class="tiny">Manuell bestaetigt &ndash; PayPal meldet keine Zahlungen zurueck.</span></div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">{{ icon('shield') }}<h2>Details</h2></div>
+        <div class="card-body">
+          <table class="data">
+            <tbody>
+              <tr><th>Nummer</th><td class="mono">{{ invoice.invoice_number }}</td></tr>
+              <tr><th>Person</th>
+                  <td>{% if person %}<a href="{{ url_for('persons.detail', person_id=person.id) }}">{{ person.full_name }}</a>{% else %}-{% endif %}</td></tr>
+              <tr><th>Zeitraum</th><td>{{ invoice.period_date|dt(settings_obj.date_format) }}</td></tr>
+              <tr><th>Betrag</th><td class="strong">{{ invoice.total_cents|money(invoice.currency) }}</td></tr>
+              <tr><th>Versandstatus</th><td>{{ invoice.status|status_badge }}</td></tr>
+              <tr><th>Zahlungsstatus</th><td>{{ invoice.payment_status|status_badge }}</td></tr>
+              <tr><th>Erstellt</th><td>{{ invoice.created_at|localdt('%d.%m.%Y %H:%M', timezone) }}</td></tr>
+              <tr><th>Versendet</th><td>{{ invoice.sent_at|localdt('%d.%m.%Y %H:%M', timezone) if invoice.sent_at else '-' }}</td></tr>
+              <tr><th>Art</th>
+                  <td>{{ 'automatisch' if invoice.is_automatic else 'manuell' }}
+                      {%- if invoice.created_by %} ({{ invoice.created_by }}){% endif %}</td></tr>
+              <tr><th>Versuche</th><td>{{ invoice.send_attempts }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-foot">
+          <form method="post" action="{{ url_for('invoices.delete', invoice_id=invoice.id) }}"
+                data-ask="Rechnung {{ invoice.invoice_number }} endgueltig loeschen? Die zugehoerigen Buchungen werden wieder offen.">
+            {{ csrf_field() }}
+            <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }}<span>Rechnung loeschen</span></button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">{{ icon('mail') }}<h2>Versandprotokoll</h2></div>
+        {% if email_logs %}
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Zeitpunkt</th><th>Empfaenger</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for log in email_logs %}
+              <tr>
+                <td class="nowrap">{{ log.created_at|localdt('%d.%m. %H:%M', timezone) }}</td>
+                <td class="mono tiny">{{ log.recipient }}</td>
+                <td>
+                  {% if log.status == 'ok' %}<span class="badge badge-bezahlt">ok</span>
+                  {% else %}<span class="badge badge-fehlgeschlagen">Fehler</span>{% endif %}
+                  {% if log.error %}<div class="tiny error-text">{{ log.error }}</div>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="card-body"><p class="muted small">Keine Eintraege im E-Mail-Protokoll.</p></div>
+        {% endif %}
+      </div>
+
+      {% if invoice.email_subject %}
+      <div class="card">
+        <div class="card-head">{{ icon('mail') }}<h2>Versendete E-Mail</h2></div>
+        <div class="card-body">
+          <p class="label">Betreff</p>
+          <p class="small mono">{{ invoice.email_subject }}</p>
+          <p class="label">Text</p>
+          <pre class="code-block">{{ invoice.email_body or '' }}</pre>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

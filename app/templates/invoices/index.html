@@ -1,0 +1,206 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field, status_badge %}
+{% block title %}Abrechnungen - {{ app_name }}{% endblock %}
+{% block page_title %}Abrechnungen{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ total }} Eintraege{% if pending %} &middot; <strong>{{ pending }}</strong> offen/fehlgeschlagen{% endif %}</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('invoices.export_csv') }}">{{ icon('download') }}<span>CSV</span></a>
+  {% if due %}
+  <form method="post" action="{{ url_for('invoices.catchup') }}" class="inline-form">
+    {{ csrf_field() }}
+    <button class="btn" type="submit"
+            data-ask="Es sind {{ due|length }} verpasste Zeitraeume faellig. Jetzt nachholen?">
+      {{ icon('refresh') }}<span>Nachholen ({{ due|length }})</span>
+    </button>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('invoices.run_now') }}" class="inline-form"
+        data-billing="Rechnungen werden erstellt ...|Rechnungen werden versendet ...">
+    {{ csrf_field() }}
+    <button class="btn btn-primary" type="submit"
+            data-ask="Abrechnung jetzt fuer alle Personen mit offenen Buchungen ausfuehren?">
+      {{ icon('invoice') }}<span>Abrechnung starten</span>
+    </button>
+  </form>
+{% endblock %}
+
+{% block content %}
+<div class="billing-status-line" data-billing-status aria-live="polite"></div>
+<div class="grid grid-3 mb-2">
+  <div class="stat stat-accent">
+    <span class="stat-label">Offener Gesamtbetrag</span>
+    <span class="stat-value">{{ open_amount|money(currency) }}</span>
+    <span class="stat-hint">Summe aller offenen Buchungen</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Rechnungen offen / fehlgeschlagen</span>
+    <span class="stat-value">{{ pending }}</span>
+    <form method="post" action="{{ url_for('invoices.run_now') }}" class="inline-form">
+      {{ csrf_field() }}
+      <input type="hidden" name="action" value="retry_failed">
+      <button class="btn btn-sm" type="submit">
+        {{ 'erneut senden' if pending else 'nichts zu senden' }}
+      </button>
+    </form>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Automatische Abrechnung</span>
+    <span class="stat-value sm">
+      {% if settings_obj.auto_billing_enabled %}aktiv &middot; {{ settings_obj.auto_billing_time }}
+      {% else %}inaktiv{% endif %}
+    </span>
+    <span class="stat-hint">{{ settings_obj.timezone }} &middot; Scheduler laeuft serverseitig</span>
+  </div>
+</div>
+
+{% if due %}
+<div class="notice notice-warning mb-2">
+  {{ icon('alert') }}
+  <div><strong>Verpasste Abrechnung{{ 'en' if due|length > 1 else '' }}:</strong>
+    {% for d in due %}{{ d|dt(settings_obj.date_format) }}{{ ', ' if not loop.last }}{% endfor %}
+    &ndash; der Server war zum konfigurierten Zeitpunkt nicht erreichbar.
+    <a href="{{ url_for('system.scheduler_view') }}">Scheduler-Status ansehen</a></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <form method="get" class="row-tight" style="flex:1;max-width:560px">
+      <input type="search" name="q" value="{{ query }}" placeholder="Nummer, Name oder E-Mail">
+      <select name="status" onchange="this.form.submit()">
+        <option value="">Alle Versandstatus</option>
+        {% for s in InvoiceStatus %}
+        <option value="{{ s.value }}" {{ 'selected' if status_filter == s.value }}>{{ s.value }}</option>
+        {% endfor %}
+      </select>
+      <select name="payment" onchange="this.form.submit()">
+        <option value="">Alle Zahlungsstatus</option>
+        {% for p in PaymentStatus %}
+        <option value="{{ p.value }}" {{ 'selected' if payment_filter == p.value }}>{{ p.value }}</option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="page" value="1">
+      <button class="btn" type="submit">{{ icon('search') }}<span>Filtern</span></button>
+    </form>
+    <span class="spacer"></span>
+    {% if status_filter or payment_filter or query %}
+    <a class="btn btn-sm" href="{{ url_for('invoices.index') }}">Filter zuruecksetzen</a>
+    {% endif %}
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Nummer</th><th>Person</th><th>Zeitraum</th>
+          <th class="num">Betrag</th><th>Versand</th><th>Zahlung</th>
+          <th class="num">Positionen</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for invoice, person in rows %}
+        <tr>
+          <td>
+            <a class="mono strong" href="{{ url_for('invoices.detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a>
+            <div class="tiny subtle">#{{ invoice.id }}</div>
+          </td>
+          <td>
+            <a href="{{ url_for('persons.detail', person_id=person.id) }}">{{ person.full_name }}</a>
+            <div class="tiny subtle mono">{{ person.email }}</div>
+          </td>
+          <td class="nowrap">{{ invoice.period_date|dt(settings_obj.date_format) }}</td>
+          <td class="num strong">{{ invoice.total_cents|money(invoice.currency) }}</td>
+          <td>
+            {{ invoice.status|status_badge }}
+            <div class="tiny subtle">{{ invoice.sent_at|localdt('%d.%m. %H:%M', timezone) if invoice.sent_at else 'nicht versendet' }}</div>
+            {% if invoice.send_attempts %}<div class="tiny subtle">{{ invoice.send_attempts }} Versuch(e)</div>{% endif %}
+          </td>
+          <td>
+            {{ invoice.payment_status|status_badge }}
+            {% if invoice.paid_at %}<div class="tiny subtle">{{ invoice.paid_at|dt('%d.%m.%Y') }}</div>{% endif %}
+          </td>
+          <td class="num">{{ invoice.items|length }}</td>
+          <td>
+            <div class="row-actions">
+              {% if invoice.status.value == 'FEHLGESCHLAGEN' or invoice.status.value == 'OFFEN' %}
+              <form method="post" action="{{ url_for('invoices.resend', invoice_id=invoice.id) }}"
+                    data-confirm="Abrechnung {{ invoice.invoice_number }} erneut versenden?">
+                {{ csrf_field() }}
+                <button class="btn btn-sm" type="submit" title="Erneut senden">{{ icon('refresh') }}</button>
+              </form>
+              {% endif %}
+              {% if invoice.payment_status.value != 'BEZAHLT' and invoice.status.value != 'STORNIERT' %}
+              <form method="post" action="{{ url_for('invoices.mark_paid', invoice_id=invoice.id) }}"
+                    data-ask="Betrag {{ invoice.total_cents|money(invoice.currency) }} als bezahlt markieren?">
+                {{ csrf_field() }}
+                <button class="btn btn-sm" type="submit" title="Als bezahlt markieren">{{ icon('check') }}</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="card-foot row">
+    <span class="muted small">Seite {{ page }} von {{ pages }} &middot; {{ per_page }} pro Seite</span>
+    <span class="spacer"></span>
+    {% if page > 1 %}
+    <a class="btn btn-sm" href="{{ url_for('invoices.index', page=page - 1, status=status_filter, payment=payment_filter, q=query) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+    {% endif %}
+    {% if page < pages %}
+    <a class="btn btn-sm" href="{{ url_for('invoices.index', page=page + 1, status=status_filter, payment=payment_filter, q=query) }}"><span>Weiter</span>{{ icon('arrow-right') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">
+    <h3>Keine Abrechnungen</h3>
+    <p>Sobald eine Person Verzehr hat, kann hier abgerechnet werden.</p>
+    <a class="btn btn-primary" href="{{ url_for('consumption.entry') }}">{{ icon('plus') }}<span>Verzehr erfassen</span></a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">{{ icon('clock') }}<h2>Letzte Abrechnungslaeufe</h2></div>
+  {% if runs %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Zeitpunkt</th><th>Zeitraum</th><th>Ausloeser</th>
+            <th class="num">Erstellt</th><th class="num">Versendet</th><th class="num">Fehlgeschlagen</th><th>Ergebnis</th></tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr>
+          <td class="nowrap">{{ run.started_at|localdt('%d.%m.%Y %H:%M:%S', timezone) }}</td>
+          <td>{{ run.period_date|dt(settings_obj.date_format) }}</td>
+          <td>
+            <span class="badge badge-neutral">{{ run.trigger }}</span>
+            {% if run.is_catchup %}<span class="badge badge-accent">Catch-up</span>{% endif %}
+          </td>
+          <td class="num">{{ run.invoices_created }}</td>
+          <td class="num">{{ run.emails_sent }}</td>
+          <td class="num">{{ run.emails_failed }}</td>
+          <td class="small">
+            {% if run.finished_at %}<span class="tiny subtle">beendet {{ run.finished_at|localdt('%H:%M:%S', timezone) }}</span><br>{% endif %}
+            {% if run.status == 'failed' %}<span class="error-text">{{ run.message or 'fehlgeschlagen' }}</span>
+            {% elif run.status == 'partial' %}<span style="color:var(--warning)">teilweise fehlgeschlagen</span>
+            {% elif run.status == 'running' %}<span class="muted">laeuft noch</span>
+            {% else %}<span style="color:var(--success)">erfolgreich</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><p class="muted small">Noch keine Abrechnungslaeufe aufgezeichnet.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,113 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Personen - {{ app_name }}{% endblock %}
+{% block page_title %}Personen{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ persons|length }} angezeigt &middot; offener Gesamtbetrag {{ total_open|money(currency) }}</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('system.export_consumptions') }}">{{ icon('download') }}<span>CSV</span></a>
+  <a class="btn btn-primary" href="{{ url_for('persons.create') }}">{{ icon('plus') }}<span>Person anlegen</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <form method="get" class="row-tight" style="flex:1;max-width:420px">
+      {{ icon('search') }}
+      <input type="search" name="q" value="{{ query }}" placeholder="Name oder E-Mail suchen..." autofocus>
+      <input type="hidden" name="inactive" value="{{ '1' if show_inactive else '0' }}">
+    </form>
+    <label class="checkbox" title="Inaktive Personen anzeigen">
+      <input type="checkbox" {{ 'checked' if show_inactive }}
+             onchange="window.location.href='{{ url_for('persons.index') }}?q={{ query|urlencode }}&inactive=' + (this.checked ? '1' : '0')">
+      <span class="small">Inaktive zeigen</span>
+    </label>
+    <span class="spacer"></span>
+  </div>
+
+  {% if persons %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>E-Mail</th>
+          <th class="num">Offener Betrag</th>
+          <th>Letzte Rechnung</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for person in persons %}
+        {% set balance = balances.get(person.id, 0) %}
+        {% set last = last_invoices.get(person.id) %}
+        <tr>
+          <td>
+            <a href="{{ url_for('persons.detail', person_id=person.id) }}" class="strong">{{ person.full_name }}</a>
+            {% if person.notes %}<div class="tiny subtle">{{ person.notes[:60] }}</div>{% endif %}
+          </td>
+          <td class="mono small">{{ person.email }}</td>
+          <td class="num">
+            {% if balance %}
+              <strong>{{ balance|money(currency) }}</strong>
+              {% set cnt = open_counts.get(person.id, 0) %}
+              {% if cnt %}<div class="tiny subtle">{{ cnt }} Buchung{{ '' if cnt == 1 else 'en' }}</div>{% endif %}
+            {% else %}
+              <span class="subtle">0,00 {{ currency }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if last %}
+              <a href="{{ url_for('invoices.detail', invoice_id=last.id) }}" class="small">
+                {{ last.total_cents|money(currency) }}</a>
+              <div class="tiny subtle">{{ last.sent_at|localdt("%d.%m.%Y %H:%M") if last.sent_at else last.created_at|localdt("%d.%m.%Y %H:%M") }}</div>
+              <div class="tiny">{{ last.status|status_badge }}</div>
+            {% else %}
+              <span class="subtle">&ndash;</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge {{ 'badge-aktiv' if person.is_active else 'badge-inaktiv' }}">
+              {{ 'Aktiv' if person.is_active else 'Inaktiv' }}</span>
+          </td>
+          <td>
+            <div class="row-actions">
+              <a class="btn btn-sm" href="{{ url_for('consumption.entry', person_id=person.id) }}">Verzehr</a>
+              {% if balance %}
+                <form method="post" action="{{ url_for('invoices.person_billing', person_id=person.id) }}"
+                      class="inline-form"
+                      data-billing="Rechnung wird erstellt ...|Rechnung wird versendet ...">
+                  {{ csrf_field() }}
+                  <input type="hidden" name="action" value="send">
+                  <button type="submit" class="btn btn-sm btn-primary" title="Offenen Betrag sofort abrechnen">
+                    {{ icon('invoice') }}<span>Rechnung senden</span>
+                  </button>
+                </form>
+              {% else %}
+                <button type="button" class="btn btn-sm" disabled
+                        title="Keine offenen Buchungen">Rechnung senden</button>
+              {% endif %}
+              <a class="btn btn-sm" href="{{ url_for('persons.edit', person_id=person.id) }}" title="Bearbeiten">{{ icon('edit') }}</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Offener Gesamtbetrag</td>
+          <td class="num">{{ total_open|money(currency) }}</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>{{ 'Keine Treffer' if query else 'Noch keine Personen' }}</h3>
+    <p>{{ 'Suche anpassen oder inaktive Personen einblenden.' if query else 'Lege die erste Person an, um Verzehr erfassen zu koennen.' }}</p>
+    <a class="btn btn-primary" href="{{ url_for('persons.create') }}">{{ icon('plus') }}<span>Person anlegen</span></a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

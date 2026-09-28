@@ -1,0 +1,28 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ code }} - {{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="card" style="width:100%">
+        <div class="card-body center">
+          <div class="stat-value">{{ code }}</div>
+          <h1 style="margin:.4rem 0 .3rem">{{ title }}</h1>
+          <p class="muted small">{{ message }}</p>
+          <div class="row" style="justify-content:center;margin-top:1rem">
+            <a class="btn btn-primary" href="/">Zur Startseite</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="center tiny subtle">PayPal Verzehrabrechnungssystem</p>
+  </div>
+</div>
+</body>
+</html>

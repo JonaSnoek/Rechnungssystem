@@ -1,0 +1,163 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field, status_badge %}
+{% block title %}Abrechnung {{ person.full_name }} - {{ app_name }}{% endblock %}
+{% block page_title %}Abrechnung {{ person.full_name }}{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  {{ person.email }} &middot; offen {{ balance|money(currency) }} &middot;
+  {{ open_bookings|length }} offene Buchung(en)
+</span>
+{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('persons.detail', person_id=person.id) }}">{{ icon('arrow-left') }}<span>Profil</span></a>
+  <a class="btn" href="{{ url_for('invoices.index') }}">{{ icon('invoice') }}<span>Alle Abrechnungen</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  <div class="card">
+    <div class="card-head">{{ icon('mail') }}<h2>Abrechnung ausfuehren</h2></div>
+    <div class="card-body">
+      <p class="muted small">
+        Es wird genau <strong>eine</strong> E-Mail mit allen offenen Buchungen dieser Person
+        erstellt und versendet. Die Buchungen werden erst nach erfolgreichem Versand als
+        abgerechnet markiert. Schlaegt der Versand fehl, bleiben sie offen und du kannst es
+        erneut versuchen &ndash; es entsteht keine doppelte Abrechnung.
+      </p>
+
+      <div class="grid grid-3 mt-1">
+        <div class="stat">
+          <span class="stat-label">Offener Betrag</span>
+          <span class="stat-value">{{ balance|money(currency) }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Positionen</span>
+          <span class="stat-value">{{ open_bookings|length }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Stueck gesamt</span>
+          <span class="stat-value">{{ open_bookings|sum(attribute='quantity') }}</span>
+        </div>
+      </div>
+
+      {% if not open_bookings %}
+      <div class="notice notice-info mt-2">
+        {{ icon('alert') }}
+        <div>Es sind keine offenen Buchungen vorhanden. Es wird keine E-Mail versendet.</div>
+      </div>
+      {% elif not settings_obj.paypal_username %}
+      <div class="notice notice-warning mt-2">
+        {{ icon('alert') }}
+        <div>Der PayPal.Me-Benutzername ist nicht konfigriert. Ohne ihn kann kein
+          Zahlungslink erzeugt werden &ndash; bitte zuerst unter
+          <a href="{{ url_for('settings.general', tab='paypal') }}">Einstellungen</a> eintragen.</div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="card-foot row">
+      <span class="muted small">Alle offenen Buchungen werden dieser Rechnung zugeordnet.</span>
+      <span class="spacer"></span>
+      <span class="muted small" data-billing-status aria-live="polite"></span>
+      <form method="post" action="{{ url_for('invoices.person_billing', person_id=person.id) }}"
+            class="inline-form"
+            data-billing="Rechnung wird erstellt ...|Rechnung wird versendet ...">
+        {{ csrf_field() }}
+        <input type="hidden" name="action" value="send">
+        <button class="btn btn-primary btn-lg" type="submit"
+                {{ 'disabled' if not open_bookings }}>
+          {{ icon('mail') }}<span>Rechnung senden</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">{{ icon('box') }}<h2>Offene Buchungen</h2></div>
+    {% if open_bookings %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Zeitpunkt</th><th>Produkt</th><th class="num">Menge</th>
+              <th class="num">Einzelpreis</th><th class="num">Summe</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for c in open_bookings %}
+          <tr>
+            <td class="nowrap">{{ c.created_at|localdt('%d.%m.%Y %H:%M', timezone) }}</td>
+            <td>
+              {{ c.product_name }}
+              {% if c.note %}<div class="tiny subtle">{{ c.note }}</div>{% endif %}
+            </td>
+            <td class="num"><span class="qty-badge">{{ c.quantity }}</span></td>
+            <td class="num">{{ c.unit_price_cents|money(c.currency) }}</td>
+            <td class="num strong">{{ c.total_cents|money(c.currency) }}</td>
+            <td>
+              <div class="row-actions">
+                <form method="post" action="{{ url_for('consumption.cancel', consumption_id=c.id) }}"
+                      data-ask="Buchung {{ c.quantity }}x {{ c.product_name }} stornieren?">
+                  {{ csrf_field() }}
+                  <button class="btn btn-sm" type="submit" title="Stornieren">{{ icon('x') }}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4">Summe</td><td class="num">{{ balance|money(currency) }}</td><td></td></tr>
+        </tfoot>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <h3>Keine offenen Buchungen</h3>
+      <p>Alles ist abgerechnet oder storniert.</p>
+      <a class="btn btn-primary" href="{{ url_for('consumption.entry', person_id=person.id) }}">Verzehr erfassen</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">{{ icon('clock') }}<h2>Abrechnungshistorie</h2></div>
+    {% if history %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Nummer</th><th>Zeitraum</th><th class="num">Betrag</th>
+                   <th>Versand</th><th>Zahlung</th><th></th></tr></thead>
+        <tbody>
+          {% for inv in history %}
+          <tr>
+            <td><a class="mono" href="{{ url_for('invoices.detail', invoice_id=inv.id) }}">{{ inv.invoice_number }}</a></td>
+            <td class="nowrap">{{ inv.period_date|dt(settings_obj.date_format) }}</td>
+            <td class="num strong">{{ inv.total_cents|money(inv.currency) }}</td>
+            <td>{{ inv.status|status_badge }}
+              {% if inv.sent_at %}<div class="tiny subtle">{{ inv.sent_at|localdt('%d.%m. %H:%M', timezone) }}</div>{% endif %}</td>
+            <td>{{ inv.payment_status|status_badge }}</td>
+            <td>
+              <div class="row-actions">
+                {% if inv.status.value in ('OFFEN', 'FEHLGESCHLAGEN') %}
+                <form method="post" action="{{ url_for('invoices.resend', invoice_id=inv.id) }}">
+                  {{ csrf_field() }}
+                  <button class="btn btn-sm" type="submit" title="Erneut senden">{{ icon('refresh') }}</button>
+                </form>
+                {% endif %}
+                {% if inv.payment_status.value != 'BEZAHLT' and inv.status.value != 'STORNIERT' %}
+                <form method="post" action="{{ url_for('invoices.mark_paid', invoice_id=inv.id) }}"
+                      data-ask="{{ inv.total_cents|money(inv.currency) }} als bezahlt markieren?">
+                  {{ csrf_field() }}
+                  <button class="btn btn-sm" type="submit" title="Als bezahlt markieren">{{ icon('check') }}</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><p class="muted small">Noch keine Abrechnung fuer diese Person.</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

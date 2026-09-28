@@ -1,0 +1,64 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Backups - {{ app_name }}{% endblock %}
+{% block page_title %}Backups{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub mono">{{ backup_dir }}</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('system.index') }}">{{ icon('arrow-left') }}<span>System</span></a>
+  <form method="post" action="{{ url_for('system.create_backup') }}" class="inline-form">
+    {{ csrf_field() }}
+    <input type="hidden" name="format" value="json">
+    <button class="btn btn-primary" type="submit" data-label="Wird erstellt...">
+      {{ icon('save') }}<span>Neues Backup</span></button>
+  </form>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    {{ icon('database') }}
+    <div><h2>{{ files|length }} Datei(en)</h2><span class="card-sub mono">{{ backup_dir }}</span></div>
+    <span class="spacer"></span>
+    <a class="btn" href="{{ url_for('system.download_backup') }}">{{ icon('download') }}<span>JSON jetzt herunterladen</span></a>
+  </div>
+
+  {% if files %}
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Datei</th><th class="num">Groesse</th><th>Geaendert</th><th></th></tr></thead>
+      <tbody>
+        {% for f in files %}
+        <tr>
+          <td class="mono small">{{ f.name }}</td>
+          <td class="num">{{ f.size_human }}</td>
+          <td class="nowrap small">{{ f.modified|localdt('%d.%m.%Y %H:%M', timezone) }}</td>
+          <td>
+            <div class="row-actions">
+              <a class="btn btn-sm" href="{{ url_for('system.restore', file=f.name) }}">{{ icon('search') }}<span>Pruefen</span></a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-foot">
+    <p class="small muted">
+      Kopiere die Dateien regelmaessig auf einen anderen Rechner oder ein NAS.
+      Fuer PostgreSQL: <span class="mono">pg_dump</span> verwenden &ndash; ein JSON-Backup
+      ist trotzdem sinnvoll, weil es unabhaengig vom Datenbankserver lesbar ist.
+    </p>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>Noch keine Backups</h3>
+    <p>Lege regelmaessig eigene Kopien an &ndash; das System ersetzt kein externes Backup.</p>
+    <form method="post" action="{{ url_for('system.create_backup') }}">
+      {{ csrf_field() }}
+      <input type="hidden" name="format" value="json">
+      <button class="btn btn-primary" type="submit">{{ icon('save') }}<span>Backup erstellen</span></button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

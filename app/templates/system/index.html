@@ -1,0 +1,150 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}System - {{ app_name }}{% endblock %}
+{% block page_title %}System{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">Status, Backups, Migrationen, Scheduler</span>{% endblock %}
+
+{% block content %}
+<div class="stack">
+  {% if migrations.pending %}
+  <div class="notice notice-warning">
+    {{ icon('alert') }}
+    <div><strong>{{ migrations.pending|length }} ausstehende Migration(en).</strong>
+      Sie werden beim naechsten Start automatisch angewendet.</div>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-3">
+    <div class="stat {{ 'stat-accent' if scheduler.running else '' }}">
+      <span class="stat-label">Scheduler</span>
+      <span class="stat-value sm">{{ 'laeuft' if scheduler.running else 'nicht gestartet' }}</span>
+      <a class="stat-hint" href="{{ url_for('system.scheduler_view') }}">Details ansehen</a>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Schema-Version</span>
+      <span class="stat-value">{{ migration_version }}</span>
+      <span class="stat-hint">{{ migrations.applied|length }} angewendet, {{ migrations.pending|length }} offen</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Version</span>
+      <span class="stat-value sm">v{{ app_version }}</span>
+      <span class="stat-hint">{{ engine.dialect }} {{ engine.driver }}</span>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head">{{ icon('database') }}<h2>Datenbank</h2></div>
+      <div class="card-body">
+        <table class="data">
+          <tbody>
+            <tr><th>Dialekt</th><td>{{ engine.dialect }} ({{ engine.driver }})</td></tr>
+            <tr><th>Host</th><td>{{ engine.host }}{% if engine.port != '-' %}:{{ engine.port }}{% endif %}</td></tr>
+            <tr><th>Datenbank</th><td class="mono small">{{ engine.database }}</td></tr>
+            {% if db_path %}
+            <tr><th>Datei</th><td class="mono tiny">{{ db_path }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">{{ icon('shield') }}<h2>Migrationen</h2></div>
+      <div class="card-body">
+        <table class="data">
+          <thead><tr><th>Version</th><th>Name</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for m in migrations.applied %}
+            <tr>
+              <td class="num">{{ '%03d'|format(m.version) }}</td>
+              <td class="small">{{ m.name }}</td>
+              <td><span class="badge badge-bezahlt">angewendet</span></td>
+            </tr>
+            {% endfor %}
+            {% for m in migrations.pending %}
+            <tr>
+              <td class="num">{{ '%03d'|format(m.version) }}</td>
+              <td class="small">{{ m.name }}</td>
+              <td><span class="badge badge-zahlung-angefordert">offen</span></td>
+            </tr>
+            {% endfor %}
+            {% if not migrations.applied and not migrations.pending %}
+            <tr><td colspan="3" class="muted small">Keine Migrationsdateien gefunden.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">{{ icon('save') }}<h2>Backup</h2></div>
+    <div class="card-body">
+      <p class="muted small">
+        Ein JSON-Backup enthaelt Personen, Produkte, Buchungen, Abrechnungen, Einstellungen
+        und das Audit-Protokoll. <strong>Keine Passwoerter</strong> &ndash; das SMTP-Passwort
+        liegt absichtlich ausserhalb der Datenbank.
+      </p>
+      <div class="row mt-1">
+        <form method="post" action="{{ url_for('system.create_backup') }}" class="inline-form">
+          {{ csrf_field() }}
+          <input type="hidden" name="format" value="json">
+          <button class="btn btn-primary" type="submit" data-label="Wird erstellt...">
+            {{ icon('save') }}<span>JSON-Backup erstellen</span></button>
+        </form>
+        <form method="post" action="{{ url_for('system.create_backup') }}" class="inline-form">
+          {{ csrf_field() }}
+          <input type="hidden" name="format" value="zip">
+          <button class="btn" type="submit">{{ icon('download') }}<span>ZIP herunterladen</span></button>
+        </form>
+        <form method="post" action="{{ url_for('system.create_backup') }}" class="inline-form">
+          {{ csrf_field() }}
+          <input type="hidden" name="format" value="sqlite">
+          <button class="btn" type="submit" {{ 'disabled' if engine.dialect != 'sqlite' }}>
+            {{ icon('database') }}<span>SQLite-Datei kopieren</span></button>
+        </form>
+        <span class="spacer"></span>
+        <a class="btn" href="{{ url_for('system.backups') }}">{{ icon('clock') }}<span>Alle Backups</span></a>
+        <a class="btn" href="{{ url_for('system.restore') }}">{{ icon('refresh') }}<span>Wiederherstellen</span></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head">{{ icon('download') }}<h2>CSV-Export</h2></div>
+      <div class="card-body">
+        <p class="muted small">Fuer Excel optimiert (UTF-8 mit BOM).</p>
+        <div class="row mt-1">
+          <a class="btn" href="{{ url_for('system.export_consumptions') }}">{{ icon('download') }}<span>Verzehr (alle)</span></a>
+          <a class="btn" href="{{ url_for('invoices.export_csv') }}">{{ icon('download') }}<span>Abrechnungen</span></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">{{ icon('clock') }}<h2>Protokolle</h2></div>
+      <div class="card-body">
+        <div class="row">
+          <a class="btn" href="{{ url_for('system.log_view', kind='audit') }}">Audit-Protokoll</a>
+          <a class="btn" href="{{ url_for('system.log_view', kind='email') }}">E-Mail-Protokoll</a>
+          <a class="btn" href="{{ url_for('system.log_view', kind='billing') }}">Abrechnungslaeufe</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">{{ icon('users') }}<h2>Konto</h2></div>
+    <div class="card-body row">
+      <a class="btn" href="{{ url_for('auth.change_password') }}">{{ icon('shield') }}<span>Passwort aendern</span></a>
+      <span class="spacer"></span>
+      <span class="muted small">
+        {{ current_admin.username if current_admin else '-' }} &middot; E-Mail-Adresse wird
+        ausschliesslich fuer den Login verwendet.
+      </span>
+    </div>
+  </div>
+</div>
+{% endblock %}

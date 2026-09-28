@@ -1,0 +1,59 @@
+﻿{% extends "setup/base_setup.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block step %}
+<div class="card">
+  <div class="card-head">{{ icon('check') }}<h2>Schritt 6 &ndash; Fertig</h2></div>
+  <div class="card-body">
+    <div class="notice notice-success mb-2">
+      {{ icon('check') }}
+      <div><strong>Alle Angaben sind erfasst.</strong>
+        Mit dem Abschluss wird der Setup-Assistent dauerhaft gesperrt.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data">
+        <tbody>
+          <tr><th style="width:190px">Datenbank</th>
+              <td><span class="badge badge-accent">{{ db_info.dialect|upper }}</span>
+                  <span class="mono tiny subtle">{{ db_info.name }}</span></td></tr>
+          <tr><th>Administrator</th>
+              <td>{{ data.get('admin_username', '-') }} <span class="muted tiny">({{ data.get('admin_email', '-') }})</span>
+                  {% if admin_count %}<span class="badge badge-neutral">bereits aktiv</span>{% endif %}</td></tr>
+          <tr><th>PayPal.Me</th>
+              <td><span class="mono">{{ settings.paypal_username or 'nicht gesetzt' }}</span>
+                  <span class="badge badge-neutral">{{ settings.currency }}</span></td></tr>
+          <tr><th>SMTP</th>
+              <td>{{ settings.get('smtp_host') or 'nicht gesetzt' }}:{{ settings.get('smtp_port') }}
+                  &middot; {{ settings.smtp_encryption|upper }}
+                  {% if settings.get('mail_from_address') %}
+                  <div class="tiny subtle">Absender: {{ settings.get('mail_from_name') }} &lt;{{ settings.get('mail_from_address') }}&gt;</div>
+                  {% endif %}</td></tr>
+          <tr><th>Abrechnung</th>
+              <td>{% if settings.auto_billing_enabled %}automatisch{% else %}manuell{% endif %}
+                  &middot; {{ settings.auto_billing_time }} Uhr ({{ settings.timezone }})</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if not settings.paypal_username or not settings.get('smtp_host') %}
+    <div class="notice notice-warning mt-2">
+      {{ icon('alert') }}
+      <div>Die Einrichtung ist unvollstaendig. Du kannst sie jetzt abschliessen und die
+        fehlenden Angaben spaeter unter <a href="{{ url_for('settings.general', tab='paypal') }}">Einstellungen</a>
+        ergaenzen.</div>
+    </div>
+    {% endif %}
+
+    <form method="post" class="mt-2">
+      {{ csrf_field() }}
+      <div class="form-actions">
+        <a class="btn" href="{{ url_for('setup.step', number=5) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+        <span class="spacer"></span>
+        <button class="btn btn-primary btn-lg" type="submit" data-label="Wird abgeschlossen...">
+          {{ icon('check') }}<span>Einrichtung abschliessen</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

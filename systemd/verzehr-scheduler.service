@@ -1,0 +1,37 @@
+[Unit]
+Description=Verzehrabrechnung - Scheduler (tägliche Abrechnung)
+Documentation=file:/opt/verzehr/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/verzehr/.env
+WorkingDirectory=/opt/verzehr
+ExecStart=/opt/verzehr/.venv/bin/python scheduler.py
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+
+# Der Scheduler darf keine E-Mails doppelt versenden: Neustart erst nach
+# sauberem Beenden. KillMode=mixed beendet auch Kindprozesse.
+KillMode=mixed
+TimeoutStopSec=30
+
+User=verzehr
+Group=verzehr
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+ReadWritePaths=/opt/verzehr/instance /opt/verzehr/var
+
+[Install]
+WantedBy=multi-user.target

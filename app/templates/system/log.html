@@ -1,0 +1,100 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, status_badge %}
+{% block title %}Protokolle - {{ app_name }}{% endblock %}
+{% block page_title %}Protokolle{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ total }} Eintraege &middot; Seite {{ page }} von {{ pages }}</span>{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('system.index') }}">{{ icon('arrow-left') }}<span>System</span></a>
+{% endblock %}
+
+{% block content %}
+<nav class="tabs">
+  <a class="tab {{ 'active' if kind == 'audit' }}" href="{{ url_for('system.log_view', kind='audit') }}">Audit-Protokoll</a>
+  <a class="tab {{ 'active' if kind == 'email' }}" href="{{ url_for('system.log_view', kind='email') }}">E-Mail-Protokoll</a>
+  <a class="tab {{ 'active' if kind == 'billing' }}" href="{{ url_for('system.log_view', kind='billing') }}">Abrechnungslaeufe</a>
+</nav>
+
+<div class="card">
+  <div class="card-head">
+    {% if kind == 'audit' %}{{ icon('shield') }}<h2>Audit-Protokoll</h2>
+    {% elif kind == 'email' %}{{ icon('mail') }}<h2>E-Mail-Protokoll</h2>
+    {% else %}{{ icon('clock') }}<h2>Abrechnungslaeufe</h2>{% endif %}
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+    {% if kind == 'audit' %}
+    <table class="data">
+      <thead><tr><th>Zeitpunkt</th><th>Benutzer</th><th>Aktion</th><th>Ziel</th><th>Details</th><th>IP</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="nowrap small">{{ row.created_at|localdt('%d.%m.%Y %H:%M:%S', timezone) }}</td>
+          <td class="small">{{ row.actor or '-' }}</td>
+          <td class="mono small">{{ row.action }}</td>
+          <td class="small">{{ row.target or '-' }}</td>
+          <td class="tiny subtle">{{ row.detail or '' }}</td>
+          <td class="tiny mono subtle">{{ row.ip_address or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif kind == 'email' %}
+    <table class="data">
+      <thead><tr><th>Zeitpunkt</th><th>Empfaenger</th><th>Betreff</th><th>Status</th><th>Fehler</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="nowrap small">{{ row.created_at|localdt('%d.%m.%Y %H:%M:%S', timezone) }}</td>
+          <td class="mono small">{{ row.recipient }}</td>
+          <td class="small">{{ row.subject }}</td>
+          <td>
+            {% if row.status == 'ok' %}<span class="badge badge-bezahlt">ok</span>
+            {% else %}<span class="badge badge-fehlgeschlagen">{{ row.status }}</span>{% endif %}
+          </td>
+          <td class="tiny error-text">{{ row.error or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table class="data">
+      <thead><tr><th>Zeitraum</th><th>Start</th><th>Ende</th><th>Ausloeser</th>
+                 <th class="num">Rechnungen</th><th class="num">Versendet</th>
+                 <th class="num">Fehlgeschlagen</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.period_date|dt(settings_obj.date_format) }}</td>
+          <td class="nowrap small">{{ row.started_at|localdt('%d.%m.%Y %H:%M:%S', timezone) }}</td>
+          <td class="nowrap small">{{ row.finished_at|localdt('%d.%m.%Y %H:%M:%S', timezone) if row.finished_at else '-' }}</td>
+          <td><span class="badge badge-neutral">{{ row.trigger }}</span>
+              {% if row.is_catchup %}<span class="badge badge-accent">catchup</span>{% endif %}</td>
+          <td class="num">{{ row.invoices_created }}</td>
+          <td class="num">{{ row.emails_sent }}</td>
+          <td class="num">{{ row.emails_failed }}</td>
+          <td class="tiny">{{ row.status }}{% if row.message %}<div class="error-text">{{ row.message }}</div>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  {% if pages > 1 %}
+  <div class="card-foot row">
+    <span class="muted small">Seite {{ page }} von {{ pages }}</span>
+    <span class="spacer"></span>
+    {% if page > 1 %}
+    <a class="btn btn-sm" href="{{ url_for('system.log_view', kind=kind, page=page - 1) }}">{{ icon('arrow-left') }}<span>Zurueck</span></a>
+    {% endif %}
+    {% if page < pages %}
+    <a class="btn btn-sm" href="{{ url_for('system.log_view', kind=kind, page=page + 1) }}"><span>Weiter</span>{{ icon('arrow-right') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state"><h3>Keine Eintraege</h3></div>
+  {% endif %}
+</div>
+{% endblock %}

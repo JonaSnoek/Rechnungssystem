@@ -1,0 +1,103 @@
+﻿{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}{{ (person.full_name ~ ' bearbeiten') if person else 'Person anlegen' }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ person.full_name if person else 'Neue Person' }}{% endblock %}
+
+{% block content %}
+<div style="max-width:640px">
+  <form method="post"
+        action="{{ url_for('persons.edit', person_id=person.id) if person else url_for('persons.create') }}">
+    {{ csrf_field() }}
+    <div class="card">
+      <div class="card-head">{{ icon('users') }}<h2>Stammdaten</h2></div>
+      <div class="card-body">
+        <div class="field-row">
+          <div class="field {{ 'has-error' if errors.get('first_name') }}">
+            <label for="first_name">Vorname *</label>
+            <input type="text" id="first_name" name="first_name" required maxlength="80"
+                   value="{{ form.get('first_name') or (person.first_name if person else '') }}" autofocus>
+            {% if errors.get('first_name') %}<p class="error-text">{{ errors.first_name }}</p>{% endif %}
+          </div>
+          <div class="field {{ 'has-error' if errors.get('last_name') }}">
+            <label for="last_name">Nachname *</label>
+            <input type="text" id="last_name" name="last_name" required maxlength="80"
+                   value="{{ form.get('last_name') or (person.last_name if person else '') }}">
+            {% if errors.get('last_name') %}<p class="error-text">{{ errors.last_name }}</p>{% endif %}
+          </div>
+        </div>
+
+        <div class="field {{ 'has-error' if errors.get('email') }}">
+          <label for="email">E-Mail-Adresse *</label>
+          <input type="email" id="email" name="email" required maxlength="254"
+                 value="{{ form.get('email') or (person.email if person else '') }}">
+          <p class="hint">An diese Adresse wird die Tagesabrechnung versendet.</p>
+          {% if errors.get('email') %}<p class="error-text">{{ errors.email }}</p>{% endif %}
+        </div>
+
+        <div class="field">
+          <label for="phone">Telefon (optional)</label>
+          <input type="text" id="phone" name="phone" maxlength="40"
+                 value="{{ form.get('phone') or (person.phone if person and person.phone else '') }}">
+        </div>
+
+        <div class="field">
+          <label for="notes">Notizen (optional)</label>
+          <textarea id="notes" name="notes" maxlength="2000" rows="3"
+                    style="font-family:var(--font);font-size:.875rem">{{ form.get('notes') or (person.notes if person and person.notes else '') }}</textarea>
+        </div>
+
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" name="is_active" value="1"
+                   {{ 'checked' if (form.get('is_active') or (person.is_active if person else true)) }}>
+            <span>Aktiv &ndash; inaktive Personen erscheinen nicht in der Verzehrerfassung</span>
+          </label>
+        </div>
+      </div>
+      <div class="card-foot">
+        <div class="row">
+          <a class="btn" href="{{ url_for('persons.detail', person_id=person.id) if person else url_for('persons.index') }}">
+            {{ icon('arrow-left') }}<span>Abbrechen</span>
+          </a>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="submit" data-label="Wird gespeichert...">
+            {{ icon('save') }}<span>{{ 'Aenderungen speichern' if person else 'Person anlegen' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  {% if person %}
+  <div class="card">
+    <div class="card-head">{{ icon('trash') }}<h2>Person deaktivieren / loeschen</h2></div>
+    <div class="card-body">
+      <p class="muted small">
+        Deaktivieren blendet die Person nur aus der Erfassung aus, die Historie bleibt erhalten.
+        Loeschen entfernt die Person inklusive aller Buchungen und Abrechnungen
+        unwiderruflich (Datenschutz: Recht auf Loeschung).
+      </p>
+      <div class="row">
+        <form method="post" action="{{ url_for('persons.toggle_status', person_id=person.id) }}">
+          {{ csrf_field() }}
+          <button class="btn" type="submit">
+            {{ 'Reaktivieren' if person.is_active else 'Deaktivieren' }}
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('persons.delete', person_id=person.id) }}"
+              data-confirm="{{ person.full_name }} wirklich unwiderruflich loeschen? Alle Buchungen und Abrechnungen dieser Person werden mitgeloescht.">
+          {{ csrf_field() }}
+          {% if balance %}<input type="hidden" name="confirm_open" value="yes">{% endif %}
+          <button class="btn btn-danger" type="submit" data-label="Wird geloescht...">
+            {{ icon('trash') }}<span>Person loeschen</span>
+          </button>
+        </form>
+        <a class="btn btn-sm" href="{{ url_for('persons.export_csv', person_id=person.id) }}">
+          {{ icon('download') }}<span>Verzehr exportieren</span>
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

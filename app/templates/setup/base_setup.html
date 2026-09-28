@@ -1,0 +1,42 @@
+﻿<!DOCTYPE html>
+<html lang="de" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Einrichtung - {{ app_name }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+{% from "_macros.html" import icon, csrf_field %}
+<div class="setup-wrap">
+  <div class="setup-inner">
+    <div class="setup-head">
+      <span class="brand-mark">{{ icon('paypal') }}</span>
+      <div>
+        <h1>{{ app_name }} &ndash; Einrichtung</h1>
+        <span class="muted small">Schritt {{ step_number }} von {{ total_steps }}: {{ title }}</span>
+      </div>
+    </div>
+
+    <div class="setup-steps">
+      {% for n, label, _ in steps %}
+      <div class="setup-step {{ 'done' if n < step_number }} {{ 'current' if n == step_number }}">
+        <span class="txt">{{ label }}</span>
+        <span class="bar"></span>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if error %}
+    <div class="notice notice-danger mb-2">{{ icon('alert') }}<div>{{ error }}</div></div>
+    {% endif %}
+
+    {% block step %}{% endblock %}
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</body>
+</html>
