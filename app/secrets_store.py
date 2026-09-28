@@ -43,6 +43,25 @@ _PLACEHOLDERS = {
 }
 
 
+def is_placeholder(value: str | None) -> bool:
+    """True if *value* is empty, a known placeholder, or a stray comment.
+
+    The comment case matters: systemd reads ``.env`` through
+    ``EnvironmentFile=`` and does *not* strip a trailing ``# comment``, so
+    ``SMTP_PASSWORD=x # Geheim`` reaches the process as the literal value
+    ``x # Geheim``. Because the environment wins over both the secrets file
+    and the web form, such a value would lock the administrator out of ever
+    changing the password again. Treating it as unset keeps the web form in
+ charge.
+    """
+    if value is None:
+        return True
+    stripped = value.strip()
+    if not stripped or stripped.startswith("#"):
+        return True
+    return stripped.lower() in _PLACEHOLDERS
+
+
 class SecretsStoreError(RuntimeError):
     pass
 
@@ -97,10 +116,10 @@ class SecretsStore:
     def get(self, key: str, default: str | None = None) -> str | None:
         env_key = ENV_MAPPING.get(key, key)
         from_env = os.environ.get(env_key)
-        if from_env and from_env not in _PLACEHOLDERS:
+        if not is_placeholder(from_env):
             return from_env
         value = self._load_file().get(key)
-        if value is None or value in _PLACEHOLDERS:
+        if is_placeholder(value):
             return default
         return value
 
@@ -126,11 +145,11 @@ class SecretsStore:
     def is_overridden_by_env(self, key: str) -> bool:
         env_key = ENV_MAPPING.get(key, key)
         value = os.environ.get(env_key)
-        return bool(value and value not in _PLACEHOLDERS)
+        return not is_placeholder(value)
 
     def writable(self) -> bool:
         from_env = os.environ.get(ENV_MAPPING.get("SMTP_PASSWORD", "SMTP_PASSWORD"))
-        if from_env and from_env not in _PLACEHOLDERS:
+        if not is_placeholder(from_env):
             return True
         if self.path.exists():
             return os.access(self.path, os.W_OK)

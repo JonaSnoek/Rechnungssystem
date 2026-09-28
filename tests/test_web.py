@@ -633,6 +633,92 @@ class TestSmtpPasswortAnzeigen:
 
 
 # ---------------------------------------------------------------------------
+# Kommentar hinter einem Wert in .env
+# ---------------------------------------------------------------------------
+class TestEnvKommentarRobust:
+    """Regression fuer den Produktionsfehler mit dem Passwort.
+
+    systemd laedt .env ueber EnvironmentFile= und schneidet keinen Kommentar
+    hinter dem Wert ab. "SMTP_PASSWORD=   # GEHEIM - niemals committen" wird
+    dadurch zur echten Umgebungsvariable und schlaegt jede Eingabe im
+    Formular - das Passwort war dadurch nicht mehr aenderbar.
+    """
+
+    @pytest.fixture()
+    def store(self, tmp_path, monkeypatch):
+        from app.secrets_store import SecretsStore
+        for var in ("SMTP_PASSWORD", "SECRET_KEY", "DB_ENCRYPTION_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        s = SecretsStore(tmp_path / "secrets.env")
+        s.set("SMTP_PASSWORD", "echtespasswort")
+        return s
+
+    def test_kommentar_in_umgebung_ist_nicht_gesetzt(self, store, monkeypatch):
+        monkeypatch.setenv("SMTP_PASSWORD", "                 # GEHEIM - niemals committen")
+        # Der Kommentar darf nicht als "ueberschreibend" gelten ...
+        assert store.is_overridden_by_env("SMTP_PASSWORD") is False
+        # ... damit die Datei wieder gewinnt und das Passwort aenderbar bleibt.
+        assert store.get("SMTP_PASSWORD") == "echtespasswort"
+
+    def test_ohne_dateiwert_gilt_kommentar_als_nicht_gesetzt(self, tmp_path, monkeypatch):
+        from app.secrets_store import SecretsStore
+        monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+        leer = SecretsStore(tmp_path / "leer.env")
+        monkeypatch.setenv("SMTP_PASSWORD", "   # GEHEIM - niemals committen")
+        assert leer.has("SMTP_PASSWORD") is False
+        assert leer.get("SMTP_PASSWORD") is None
+
+    @pytest.mark.parametrize(
+        "wert",
+        [
+            "# GEHEIM - niemals committen",
+            "   # comment",
+            "#",
+            "",
+            "   ",
+            None,
+            "changeme",
+            "********",
+        ],
+    )
+    def test_platzhalter_und_kommentare(self, wert):
+        from app.secrets_store import is_placeholder
+        assert is_placeholder(wert) is True
+
+    @pytest.mark.parametrize("wert", ["abcd efgh ijkl mnop", "qdxkjsdkemuexahj", "x"])
+    def test_echte_werte_sind_keine_platzhalter(self, wert):
+        from app.secrets_store import is_placeholder
+        assert is_placeholder(wert) is False
+
+    def test_echte_umgebungsvariable_gewinnt_weiterhin(self, store, monkeypatch):
+        monkeypatch.setenv("SMTP_PASSWORD", "absichtlicherwert")
+        assert store.is_overridden_by_env("SMTP_PASSWORD") is True
+        assert store.get("SMTP_PASSWORD") == "absichtlicherwert"
+
+    def test_passwort_laesst_sich_trotz_kommentar_aendern(self, admin, csrf, monkeypatch):
+        monkeypatch.setenv("SMTP_PASSWORD", "   # altes .env.example")
+        TestSmtpPasswortAnzeigen()._set_password(admin, csrf, "neuespasswort")
+        r = admin.post("/einstellungen/smtp/password-reveal", data={
+            "csrf_token": csrf("/einstellungen/smtp")}, follow_redirects=True)
+        assert "neuespasswort" in r.get_data(as_text=True)
+
+    def test_env_example_hat_keine_inline_kommentare(self):
+        """Sonst faellt der Fehler bei jedem frischen Server erneut auf."""
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        offenders = []
+        for name in (".env.example",):
+            for i, raw in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1):
+                line = raw.rstrip()
+                if line.lstrip().startswith("#") or "=" not in line:
+                    continue
+                _, _, value = line.partition("=")
+                if "#" in value:
+                    offenders.append(f"{name}:{i} {line.split('=')[0]}")
+        assert not offenders, "Inline-Kommentare gefunden: " + ", ".join(offenders)
+
+
+# ---------------------------------------------------------------------------
 # Abrechnung ueber HTTP
 # ---------------------------------------------------------------------------
 class TestAbrechnungHttp:
