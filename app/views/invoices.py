@@ -321,7 +321,8 @@ def person_billing(person_id: int):
         elif result.emails_failed or result.fatal_error:
             flash(
                 f"Rechnung konnte nicht versendet werden: "
-                f"{result.fatal_error or 'SMTP-Fehler'}. Der Betrag bleibt offen "
+                f"{result.fatal_error or result.first_error() or 'SMTP-Fehler'}. "
+                f"Der Betrag bleibt offen "
                 f"({format_cents(new_balance, settings.currency)}) - bitte erneut senden.",
                 "error",
             )
@@ -430,12 +431,13 @@ def run_now():
     elif result.emails_sent:
         flash(
             f"{result.emails_sent} E-Mail(s) versendet, {result.emails_failed} fehlgeschlagen. "
-            "Fehlgeschlagene Buchungen bleiben offen.",
+            f"Fehlgeschlagene Buchungen bleiben offen. Grund: {result.first_error()}",
             "warning",
         )
     elif result.emails_failed:
         flash(
-            f"Alle {result.emails_failed} Abrechnungen sind fehlgeschlagen. "
+            f"Alle {result.emails_failed} Abrechnungen sind fehlgeschlagen: "
+            f"{result.first_error()}. "
             "Buchungen bleiben offen - bitte SMTP pruefen und erneut senden.",
             "error",
         )

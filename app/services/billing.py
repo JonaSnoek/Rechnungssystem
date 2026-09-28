@@ -117,6 +117,29 @@ class BillingResult:
     def ok(self) -> bool:
         return not self.fatal_error and self.emails_failed == 0
 
+    def errors(self) -> list[str]:
+        """Distinct failure reasons of the individual persons, in order."""
+        seen: list[str] = []
+        for item in self.items:
+            text = (item.error or "").strip()
+            if text and text not in seen:
+                seen.append(text)
+        return seen
+
+    def first_error(self) -> str:
+        """Shortest useful reason for a flash message.
+
+        ``fatal_error`` only covers database level problems. A rejected
+        recipient or an SMTP refusal lands in ``items[].error``, so without
+        this the UI showed a bare "SMTP-Fehler" and hid the real reason.
+        """
+        found = self.errors()
+        if not found:
+            return ""
+        if len(found) == 1:
+            return found[0]
+        return found[0] + f" (+{len(found) - 1} weitere)"
+
     def as_dict(self) -> dict:
         return {
             "period_date": self.period_date.isoformat(),

@@ -719,6 +719,87 @@ class TestEnvKommentarRobust:
 
 
 # ---------------------------------------------------------------------------
+# Fehlergrund beim Rechnungsversand
+# ---------------------------------------------------------------------------
+class TestVersandfehlerSichtbar:
+    """Die Meldung muss den echten Grund nennen, nicht nur 'SMTP-Fehler'.
+
+    Produktion: die Test-Mail kam an, die Rechnung nicht, und die Oberflaeche
+    zeigte nur "SMTP-Fehler". Der Grund stand in items[].error, wurde aber
+    nie ausgegeben.
+    """
+
+    @pytest.fixture()
+    def result(self):
+        from datetime import date
+
+        from app.services.billing import BillingResult, PersonBillingResult
+
+        def _make(errors):
+            r = BillingResult(period_date=date(2026, 1, 1), trigger="manual")
+            for i, err in enumerate(errors):
+                r.items.append(PersonBillingResult(
+                    person_id=i + 1,
+                    person_name=f"Person {i + 1}",
+                    email="p@example.com",
+                    status="fehlgeschlagen",
+                    error=err,
+                ))
+            r.emails_failed = len(errors)
+            return r
+        return _make
+
+    def test_einzigener_grund_wird_genannt(self, result):
+        r = result(["Ungueltige Empfaengeradresse"])
+        assert r.first_error() == "Ungueltige Empfaengeradresse"
+
+    def test_mehrere_gruende_gezaehlt(self, result):
+        r = result(["Ungueltige Empfaengeradresse", "PayPal.Me-Benutzername fehlt"])
+        assert r.first_error() == "Ungueltige Empfaengeradresse (+1 weitere)"
+
+    def test_ohne_fehler_leer(self, result):
+        assert result([]).first_error() == ""
+
+    def test_gleiche_gruende_nicht_doppelt(self, result):
+        assert len(result(["Gleicher Fehler", "Gleicher Fehler"]).errors()) == 1
+
+    def test_ohne_email_zeigt_grund_statt_smtp_fehler(self, admin, csrf, db, configured, book):
+        """Ohne Empfaengeradresse darf kein SMTP-Fehler behauptet werden."""
+        from app.models import Person
+        person = db.get(Person, configured["person_id"])
+        book(configured["person_id"], "Spezi", 200)
+        person.email = ""
+        db.commit()
+        url = f"/abrechnungen/person/{person.id}"
+        r = admin.post(url, data={"csrf_token": csrf(url)}, follow_redirects=True)
+        text = r.get_data(as_text=True)
+        assert "Ungueltige Empfaengeradresse" in text
+        assert "SMTP-Fehler" not in text
+
+    def test_fehlender_paypal_handle_wird_genannt(self, admin, csrf, db, configured, book):
+        from app.models import Person
+        book(configured["person_id"], "Spezi", 200)
+        configured["settings"].set("paypal_me_username", "")
+        db.commit()
+        url = f"/abrechnungen/person/{configured['person_id']}"
+        r = admin.post(url, data={"csrf_token": csrf(url)}, follow_redirects=True)
+        text = r.get_data(as_text=True)
+        assert "PayPal" in text
+        assert "SMTP-Fehler" not in text
+
+    def test_betrag_bleibt_offen(self, admin, csrf, db, configured, book, balance):
+        from app.models import Person
+        person = db.get(Person, configured["person_id"])
+        book(configured["person_id"], "Spezi", 200)
+        person.email = ""
+        db.commit()
+        vorher = balance(configured["person_id"])
+        url = f"/abrechnungen/person/{person.id}"
+        admin.post(url, data={"csrf_token": csrf(url)})
+        assert balance(configured["person_id"]) == vorher > 0
+
+
+# ---------------------------------------------------------------------------
 # Abrechnung ueber HTTP
 # ---------------------------------------------------------------------------
 class TestAbrechnungHttp:
