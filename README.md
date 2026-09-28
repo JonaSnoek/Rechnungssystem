@@ -44,12 +44,15 @@ sudo chmod +x install.sh          # bei Windows-/ZIP-Transfer nötig
 sudo ./install.sh
 ```
 
-`install.sh` legt System-Benutzer, virtuelle Umgebung, Datenbank, beide
-systemd-Dienste und die nginx-Konfiguration an. Danach im Browser öffnen:
+`install.sh` legt System-Benutzer, virtuelle Umgebung, Datenbank und beide
+systemd-Dienste an. Die Anwendung ist danach **unter der IP des Servers**
+erreichbar; das Skript zeigt die passenden URLs zum Schluss an:
 
 ```
 http://<server-ip>:8000/setup
 ```
+
+Ist der Port durch die Firewall blockiert, hilft `sudo env OPEN_FIREWALL=1 ./install.sh`.
 
 Der Assistent hat sechs Schritte: Datenbank, Administrator, PayPal.Me,
 SMTP-Mailserver, Abrechnungszeit, fertig. PayPal.Me und SMTP lassen sich auch
@@ -144,10 +147,18 @@ werden, sonst startet jeder Worker einen eigenen Scheduler. (Die Datenbank
 sichert das zusätzlich über ein Heartbeat-Lock ab, aber ein einziger
 Scheduler-Prozess ist eindeutiger.)
 
-Für den Zugriff aus dem LAN muss **zwei** Stellen geändert werden: in der
-Unit-Datei `--bind 127.0.0.1:8000` zu `--bind 0.0.0.0:8000` (dann
-`systemctl daemon-reload`) und – für den Entwicklungsserver – `APP_HOST=0.0.0.0`
-in `.env`. Für alles darüber hinaus bitte TLS vorschalten, siehe
+`install.sh` bindet standardmäßig auf `0.0.0.0:8000`, damit die Anwendung
+unter der IP des Servers erreichbar ist. Umgestellt wird das über Variablen,
+die Unit-Datei und `.env` gemeinsam setzen:
+
+```bash
+sudo env BIND_ADDR=127.0.0.1 ./install.sh    # nur lokal, Pflicht hinter nginx
+sudo env BIND_PORT=8080 ./install.sh         # anderer Port
+sudo env OPEN_FIREWALL=1 ./install.sh        # Port in ufw/firewalld öffnen
+```
+
+`sudo env VAR=…` statt `sudo VAR=…`, weil sudo Variablen sonst nicht
+durchreicht. Für alles darüber hinaus bitte TLS vorschalten, siehe
 [nginx und TLS](#nginx-und-tls).
 
 ---
@@ -207,8 +218,13 @@ sudo ln -s ../sites-available/verzehr.conf       /etc/nginx/sites-enabled/
 sudo ln -s ../sites-available/verzehr-http.conf /etc/nginx/sites-enabled/
 ```
 
-Die Anwendung selbst lauscht weiter nur auf `127.0.0.1:8000` und ist von
-außen nicht erreichbar.
+Die Anwendung lauscht nach der Installation auf `0.0.0.0:8000` und ist damit
+unter der IP des Servers erreichbar. Sobald nginx übernimmt, auf Loopback
+zurückbinden, damit der Port nicht zusätzlich offen im Netz hängt:
+
+```bash
+cd /opt/verzehr && sudo env BIND_ADDR=127.0.0.1 ./install.sh
+```
 
 Aktuellen Zertifikatspfad eintragen und nginx neu laden:
 

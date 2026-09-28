@@ -116,7 +116,45 @@ cd /opt/verzehr
 sudo ./install.sh
 ```
 
-Fertig. Das war alles.
+Fertig. Die Anwendung ist danach **unter der IP des Servers** erreichbar.
+Das Skript zeigt am Ende alle Adressen an, zum Beispiel:
+
+```
+==> Fertig.
+
+  Einrichtung abschliessen unter:
+      http://192.168.1.50:8000/setup
+      http://10.0.0.7:8000/setup
+      http://localhost:8000/setup   (nur auf dem Server selbst)
+```
+
+Falls der Port in der Firewall gesperrt ist, meldet das Skript das und
+nennt den passenden Befehl. Oder gleich mit:
+
+```bash
+sudo env OPEN_FIREWALL=1 ./install.sh
+```
+
+### Erreichbarkeit steuern
+
+| Variable | Standard | Wirkung |
+| --- | --- | --- |
+| `BIND_ADDR` | `0.0.0.0` | `0.0.0.0` = unter der Server-IP erreichbar, `127.0.0.1` = nur lokal |
+| `BIND_PORT` | `8000` | Port des Web-Dienstes |
+| `OPEN_FIREWALL` | `0` | `1` = Port in ufw/firewalld freigeben |
+
+Nur lokal binden, sobald nginx davorsteht:
+
+```bash
+cd /opt/verzehr
+sudo env BIND_ADDR=127.0.0.1 ./install.sh
+```
+
+Anderer Port:
+
+```bash
+sudo env BIND_PORT=8080 ./install.sh
+```
 
 ### Mit eigener Domain (empfohlen für den Betrieb)
 
@@ -125,7 +163,7 @@ vorbereitet:
 
 ```bash
 cd /opt/verzehr
-sudo DOMAIN=verzehr.example.de ./install.sh
+sudo env DOMAIN=verzehr.example.de ./install.sh
 ```
 
 ### Installation an einem anderen Ort
@@ -133,7 +171,7 @@ sudo DOMAIN=verzehr.example.de ./install.sh
 Standard ist `/opt/verzehr`. Für einen anderen Pfad:
 
 ```bash
-sudo APP_DIR=/srv/verzehr ./install.sh
+sudo env APP_DIR=/srv/verzehr ./install.sh
 ```
 
 > Achtung: Änderst du `APP_DIR`, musst du anschließend in
@@ -144,11 +182,17 @@ sudo APP_DIR=/srv/verzehr ./install.sh
 
 ```bash
 cd /opt/verzehr
-sudo DOMAIN=verzehr.example.de \
-     APP_DIR=/opt/verzehr \
-     APP_USER=verzehr \
-     ./install.sh
+sudo env DOMAIN=verzehr.example.de \
+         APP_DIR=/opt/verzehr \
+         APP_USER=verzehr \
+         BIND_ADDR=0.0.0.0 \
+         BIND_PORT=8000 \
+         OPEN_FIREWALL=1 \
+         ./install.sh
 ```
+
+> `sudo env VAR=…` ist wichtig: normales `sudo VAR=1 …` reicht die Variable
+> nicht durch.
 
 ### Alternative ohne `./`
 
@@ -172,9 +216,9 @@ Das funktioniert auch, wenn das Ausführbit fehlt. `sudo sh install.sh` ist
 | 4 | Legt `instance/`, `var/backups/`, `var/log/` an |
 | 5 | Erzeugt `.venv` und installiert `requirements.txt` |
 | 6 | Erzeugt `.env` aus `.env.example`, Rechte `0640` |
-| 7 | Installiert `verzehr-web.service` und `verzehr-scheduler.service`, aktiviert sie |
+| 7 | Installiert `verzehr-web.service` und `verzehr-scheduler.service`, setzt `--bind` auf `BIND_ADDR:BIND_PORT`, aktiviert sie |
 | 8 | Initialisiert Datenbank und Migrationen |
-| 9 | Startet den Web-Dienst und zeigt den Status |
+| 9 | Öffnet auf Wunsch die Firewall, startet den Dienst, prüft die Erreichbarkeit |
 
 Das Skript bricht bei jedem Fehler ab und nennt die Zeile. Läuft es zweimal
 auf einer Installation, erkennt es das und verweist auf `update.sh`, statt
@@ -183,11 +227,12 @@ versehentlich Daten zu überschreiben.
 ### Erwartete Ausgabe am Ende
 
 ```
+==> Dienst antwortet auf Port 8000
 ==> Fertig.
 
-  Einrichtung abschliessen:
-      http://localhost:8000/setup
-    (bzw. http://SERVER-IP:8000/setup aus dem lokalen Netz)
+  Einrichtung abschliessen unter:
+      http://192.168.1.50:8000/setup
+      http://localhost:8000/setup   (nur auf dem Server selbst)
   ...
 ```
 
@@ -195,10 +240,40 @@ versehentlich Daten zu überschreiben.
 
 ## 5. Erreichbar machen
 
-Direkt nach der Installation hört Gunicorn **nur** auf `127.0.0.1:8000`.
-Das ist Absicht – die Anwendung ist so nicht von außen erreichbar.
+Standardmäßig hört Gunicorn auf `0.0.0.0:8000` und ist damit **unter der
+IP-Adresse des Servers** aufrufbar. Prüfen:
 
-Für die Ersteinrichtung aus dem LAN (SSH-Tunnel ist die sicherste Variante):
+```bash
+hostname -I                                  # IPs des Servers anzeigen
+curl -I http://SERVER-IP:8000/login
+```
+
+Bleibt die Verbindung aus, blockiert fast immer die Firewall. Das Skript
+prüft ufw und firewalld und nennt den passenden Befehl:
+
+```bash
+# ufw
+sudo ufw allow 8000/tcp
+# firewalld
+sudo firewall-cmd --permanent --add-port=8000/tcp && sudo firewall-cmd --reload
+```
+
+Im selben Netz sollte `ufw` auf das lokale Netz beschränkt werden, statt
+weltweit offen:
+
+```bash
+sudo ufw allow from 192.168.0.0/16 to any port 8000 proto tcp
+```
+
+### Sicherer Zugang über SSH statt offenem Port
+
+Wenn Port 8000 nicht im Netz freiliegen soll, nur lokal binden und einen
+Tunnel nutzen:
+
+```bash
+cd /opt/verzehr
+sudo env BIND_ADDR=127.0.0.1 ./install.sh
+```
 
 ```bash
 # auf deinem Rechner
@@ -206,24 +281,22 @@ ssh -L 8000:127.0.0.1:8000 root@SERVER-IP
 # dann im Browser: http://localhost:8000/setup
 ```
 
-Oder temporär im LAN. Wichtig: unter systemd liest Gunicorn seine Bind-Adresse
-aus der Unit-Datei, nicht aus `.env`. Beides muss deshalb geändert werden.
+### Bind-Adresse nachträglich ändern
+
+Unter systemd liest Gunicorn seine Bind-Adresse aus der Unit-Datei, nicht
+aus `.env`. `BIND_ADDR` beim erneuten Aufruf von `install.sh` setzt beides
+und ist der einfachste Weg. Von Hand:
 
 ```bash
 # 1) in der Unit-Datei
-sudo sed -i 's/--bind 127.0.0.1:8000/--bind 0.0.0.0:8000/' \
+sudo sed -i 's/--bind 0.0.0.0:8000/--bind 127.0.0.1:8000/' \
      /etc/systemd/system/verzehr-web.service
 sudo systemctl daemon-reload
 
 # 2) fuer den Entwicklungsserver (python wsgi.py) zusaetzlich in .env
-sudo sed -i 's/^APP_HOST=.*/APP_HOST=0.0.0.0/' /opt/verzehr/.env
+sudo sed -i 's/^APP_HOST=.*/APP_HOST=127.0.0.1/' /opt/verzehr/.env
 
 sudo systemctl restart verzehr-web
-
-# Firewall nur fuer das lokale Netz freigeben:
-sudo ufw allow from 192.168.0.0/16 to any port 8000 proto tcp
-# später wieder entfernen:
-sudo ufw delete allow from 192.168.0.0/16 to any port 8000 proto tcp
 ```
 
 Nach der Einrichtung unbedingt zurück auf Loopback setzen (Schritt 7.5),
@@ -431,10 +504,9 @@ verwendbar – dann manuell starten (siehe Abschnitt 13).
 
 ```bash
 sudo ss -tlnp | grep 8000
-# anderen Port setzen:
-sudo sed -i 's/^APP_PORT=.*/APP_PORT=8080/' /opt/verzehr/.env
-sudo sed -i 's/127.0.0.1:8000/127.0.0.1:8080/' /etc/systemd/system/verzehr-web.service
-sudo systemctl daemon-reload && sudo systemctl restart verzehr-web
+# anderen Port setzen - Unit-Datei und .env werden von install.sh gemeinsam
+# angepasst:
+cd /opt/verzehr && sudo env BIND_PORT=8080 ./install.sh
 ```
 
 ### E-Mails kommen nicht an
@@ -489,6 +561,10 @@ Gunicorn-Worker einen eigenen Scheduler.
 ```bash
 sudo apt install -y python3 python3-venv git
 cd /opt && sudo git clone https://github.com/JonaSnoek/Rechnungssystem.git verzehr
-cd verzehr && sudo chmod +x install.sh && sudo DOMAIN=example.de ./install.sh
-ssh -L 8000:127.0.0.1:8000 root@SERVER-IP     # dann http://localhost:8000/setup
+cd verzehr && sudo chmod +x install.sh
+sudo env OPEN_FIREWALL=1 ./install.sh      # bindet auf 0.0.0.0:8000
 ```
+
+Dann `http://<SERVER-IP>:8000/setup` aufrufen. Für eine Domain davor:
+`sudo env BIND_ADDR=127.0.0.1 DOMAIN=example.de ./install.sh`, dann
+Abschnitt 7.

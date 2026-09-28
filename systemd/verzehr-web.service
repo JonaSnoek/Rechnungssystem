@@ -9,6 +9,9 @@ Type=notify
 # Anpassen, falls die Anwendung anderswo liegt:
 EnvironmentFile=-/opt/verzehr/.env
 WorkingDirectory=/opt/verzehr
+# --bind wird von install.sh gesetzt (BIND_ADDR, Standard 0.0.0.0 = unter der
+# Server-IP erreichbar). Hier steht der Wert, der beim manuellen Start von
+# update.sh erhalten bleibt.
 ExecStart=/opt/verzehr/.venv/bin/gunicorn \
     --workers 2 \
     --threads 2 \
