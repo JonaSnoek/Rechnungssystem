@@ -144,8 +144,11 @@ werden, sonst startet jeder Worker einen eigenen Scheduler. (Die Datenbank
 sichert das zusätzlich über ein Heartbeat-Lock ab, aber ein einziger
 Scheduler-Prozess ist eindeutiger.)
 
-Für den Zugriff aus dem LAN genügt `APP_HOST=0.0.0.0`. Für alles darüber
-hinaus bitte TLS vorschalten – siehe [nginx und TLS](#nginx-und-tls).
+Für den Zugriff aus dem LAN muss **zwei** Stellen geändert werden: in der
+Unit-Datei `--bind 127.0.0.1:8000` zu `--bind 0.0.0.0:8000` (dann
+`systemctl daemon-reload`) und – für den Entwicklungsserver – `APP_HOST=0.0.0.0`
+in `.env`. Für alles darüber hinaus bitte TLS vorschalten, siehe
+[nginx und TLS](#nginx-und-tls).
 
 ---
 

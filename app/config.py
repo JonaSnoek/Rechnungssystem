@@ -53,7 +53,7 @@ class Config:
 
         self.APP_NAME = os.environ.get("APP_NAME", "Verzehrabrechnung")
         self.APP_ENV = os.environ.get("APP_ENV", "production")
-        self.HOST = os.environ.get("APP_HOST", "0.0.0.0")
+        self.HOST = os.environ.get("APP_HOST", "127.0.0.1")
         self.PORT = _int("APP_PORT", 8000)
         self.URL = os.environ.get("APP_URL", "").rstrip("/")
         self.TIMEZONE = os.environ.get("APP_TIMEZONE", "Europe/Berlin")

@@ -206,16 +206,28 @@ ssh -L 8000:127.0.0.1:8000 root@SERVER-IP
 # dann im Browser: http://localhost:8000/setup
 ```
 
-Oder temporär im LAN, mit Firewall-Regel:
+Oder temporär im LAN. Wichtig: unter systemd liest Gunicorn seine Bind-Adresse
+aus der Unit-Datei, nicht aus `.env`. Beides muss deshalb geändert werden.
 
 ```bash
+# 1) in der Unit-Datei
+sudo sed -i 's/--bind 127.0.0.1:8000/--bind 0.0.0.0:8000/' \
+     /etc/systemd/system/verzehr-web.service
+sudo systemctl daemon-reload
+
+# 2) fuer den Entwicklungsserver (python wsgi.py) zusaetzlich in .env
 sudo sed -i 's/^APP_HOST=.*/APP_HOST=0.0.0.0/' /opt/verzehr/.env
+
 sudo systemctl restart verzehr-web
 
+# Firewall nur fuer das lokale Netz freigeben:
 sudo ufw allow from 192.168.0.0/16 to any port 8000 proto tcp
 # später wieder entfernen:
 sudo ufw delete allow from 192.168.0.0/16 to any port 8000 proto tcp
 ```
+
+Nach der Einrichtung unbedingt zurück auf Loopback setzen (Schritt 7.5),
+sobald nginx übernimmt.
 
 Prüfen, ob der Dienst läuft:
 
