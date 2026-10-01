@@ -114,6 +114,56 @@ Rechnung selbst bleibt als Historie stehen, inklusive Positionen. Beim
 nächsten Lauf kann sie als neue Rechnung erstellt werden – der Abbuchbetrag
 bleibt identisch.
 
+### Guthabenkonto
+
+Jede Person hat genau ein Konto. Der Kontostand ist **Einzahlungen minus
+Verzehr**: positiv ist Guthaben, negativ eine Schuld.
+
+| Schritt | Wirkung auf das Konto |
+| --- | --- |
+| Verzehr erfassen | belastet **sofort** beim Speichern |
+| Einzahlung erfassen | günstigt das Konto |
+| Rechnung senden | **keine** Wirkung, nur Ausweis der Verrechnung |
+
+Das ist der entscheidende Punkt: Eine Buchung wird genau einmal belastet, und
+zwar dann, wenn sie entsteht. Die Rechnung belastet nichts erneut, sondern weist
+nur aus, welcher Teil des Verzehrs durch damaliges Guthaben gedeckt war
+(`credit_applied_cents`) und wie viel zu zahlen bleibt (`amount_due_cents`). Wird
+eine Rechnung vollständig durch Guthaben gedeckt, entsteht **kein PayPal-Link**.
+
+Damit das auch bei mehreren Rechnungen pro Tag stimmt, speichert jede Buchung
+das Guthaben, das sie bei der Erfassung verbraucht hat. Die Rechnung summiert
+diese Werte, statt das Konto erneut anzufassen.
+
+### Kontobewegungen werden nur angehängt
+
+`ledger_entries` wird nie geändert oder gelöscht. Eine falsche Buchung wird
+durch eine Gegenbewegung (`KORREKTUR`) ausgeglichen, die über `reverses_entry_id`
+auf die ursprüngliche Bewegung zeigt. Beide bleiben sichtbar.
+
+Eindeutigkeit ist auf Datenbankebene gesichert: `consumption_id`, `deposit_id`
+und `reverses_entry_id` sind jeweils `UNIQUE`. Eine doppelte Buchung kann deshalb
+nicht entstehen, egal wie oft ein Ablauf wiederholt wird.
+
+### E-Mail getrennt von der Einzahlung
+
+Die Einzahlung wird **vor** dem Mailversand gespeichert. Schlägt der Versand
+fehl, ist das Geld trotzdem gebucht; nur `deposits.email_status` steht dann auf
+`FEHLGESCHLAGEN`. Ein erneuter Versuch (`/personen/<id>/konto`,
+Button *Erneut senden*) ändert den Kontostand nicht.
+
+Ein PayPal-Link gilt nie als Zahlungsbestätigung: Eingezahltes wird als
+Einzahlung von Hand erfasst.
+
+### Altdaten
+
+Bestandsdaten werden beim ersten Start nach dem Schema-Wechsel automatisch
+übernommen (`ensure_accounts`): jede Person bekommt ein Konto, jede nicht
+stornierte Buchung eine Bewegung. Der Vorgang ist wiederholbar und erfindet
+**keine** historischen Einzahlungen – Zahlungen, die nie erfasst wurden, bleiben
+unsichtbar. Dafür gibt es auf der Kontoseite *Anfangsbestand korrigieren*, das
+den Zielwert als sichtbare Korrekturbuchung setzt.
+
 ### Zahlungsstatus getrennt vom Versandstatus
 
 | Feld | Werte |

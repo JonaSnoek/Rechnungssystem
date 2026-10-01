@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum as SAEnum,
@@ -58,6 +59,37 @@ class InvoiceStatus(str, enum.Enum):
     VERSENDT = "VERSENDT"
     FEHLGESCHLAGEN = "FEHLGESCHLAGEN"
     STORNIERT = "STORNIERT"
+
+
+class LedgerEntryType(str, enum.Enum):
+    """Kind of movement on a credit account.
+
+    ``VERZEHR`` and ``EINZAHLUNG`` are the two everyday movements. ``EROEFFNUNG``
+    carries an administratively corrected opening balance and ``KORREKTUR`` is a
+    compensating entry. Neither is ever applied to a consumption or a deposit,
+    so the UNIQUE constraints on those columns cannot be violated by them.
+    """
+
+    VERZEHR = "VERZEHR"
+    EINZAHLUNG = "EINZAHLUNG"
+    EROEFFNUNG = "EROEFFNUNG"
+    KORREKTUR = "KORREKTUR"
+
+
+class PaymentType(str, enum.Enum):
+    BAR = "BAR"
+    PAYPAL = "PAYPAL"
+    UEBERWEISUNG = "UEBERWEISUNG"
+    SONSTIGE = "SONSTIGE"
+
+
+class DepositEmailStatus(str, enum.Enum):
+    """Mail delivery state, deliberately independent of the deposit itself."""
+
+    OFFEN = "OFFEN"
+    GESENDET = "GESENDET"
+    FEHLGESCHLAGEN = "FEHLGESCHLAGEN"
+    NICHT_GESENDET = "NICHT GESENDET"
 
 
 def _enum(py_enum: type[enum.Enum], name: str) -> SAEnum:
@@ -126,6 +158,16 @@ class Person(Base, TimestampMixin):
     )
     invoices: Mapped[list["Invoice"]] = relationship(
         back_populates="person", cascade="all, delete-orphan", passive_deletes=True
+    )
+    account: Mapped["Account | None"] = relationship(
+        back_populates="person", cascade="all, delete-orphan", passive_deletes=True
+    )
+    deposits: Mapped[list["Deposit"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Deposit.paid_at.desc()",
+    )
+    ledger_entries: Mapped[list["LedgerEntry"]] = relationship(
+        back_populates="person", passive_deletes=True
     )
 
     @property
@@ -202,10 +244,21 @@ class Consumption(Base):
     invoice_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="CASCADE")
     )
+    # --- Kontofuehrung (Migration 003) ------------------------------------
+    # Kontostand unmittelbar vor dieser Buchung. Wird beim Erfassen gesetzt
+    # und dient der Rueckuebernahme alter Daten.
+    balance_before_cents: Mapped[int | None] = mapped_column(Integer)
+    # Anteil dieser Buchung, der beim Erfassen durch vorhandenes Guthaben
+    # gedeckt wurde. Die Summe ueber die Buchungen einer Rechnung ist deren
+    # verrechnetes Guthaben - der Kontostand wird dadurch nicht erneut belastet.
+    credit_applied_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     person: Mapped[Person] = relationship(back_populates="consumptions")
     product: Mapped[Product | None] = relationship(back_populates="consumptions")
     invoice: Mapped["Invoice | None"] = relationship(back_populates="consumptions")
+    ledger_entries: Mapped[list["LedgerEntry"]] = relationship(
+        back_populates="consumption", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     @property
     def line_total_cents(self) -> int:
@@ -268,6 +321,13 @@ class Invoice(Base):
     paid_amount_cents: Mapped[int | None] = mapped_column(Integer)
     is_automatic: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64))
+    # --- Kontofuehrung (Migration 003) ------------------------------------
+    # Momentaufnahme fuer die Rechnungs-E-Mail. Die Rechnung aendert den
+    # Kontostand nicht, sie dokumentiert nur die Deckung.
+    credit_applied_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    amount_due_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    balance_before_cents: Mapped[int | None] = mapped_column(Integer)
+    balance_after_cents: Mapped[int | None] = mapped_column(Integer)
 
     person: Mapped[Person] = relationship(back_populates="invoices")
     items: Mapped[list["InvoiceItem"]] = relationship(
@@ -275,6 +335,9 @@ class Invoice(Base):
     )
     consumptions: Mapped[list[Consumption]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan", passive_deletes=True
+    )
+    ledger_entries: Mapped[list["LedgerEntry"]] = relationship(
+        back_populates="invoice", passive_deletes=True
     )
 
     @property
@@ -299,6 +362,173 @@ class InvoiceItem(Base):
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     invoice: Mapped[Invoice] = relationship(back_populates="items")
+
+
+# ---------------------------------------------------------------------------
+# Guthabenkonto, Einzahlungen und Kontobewegungen
+# ---------------------------------------------------------------------------
+class Account(Base, TimestampMixin):
+    """Credit account of exactly one person.
+
+    ``balance_cents`` is negative for a debtor and positive for credit. It is
+    the running sum of the ledger and is written in the same transaction as the
+    ledger entry, never on its own. :func:`app.services.accounts.verify_accounts`
+    recomputes it from the ledger and reports any drift.
+    """
+
+    __tablename__ = "accounts"
+    __table_args__ = (
+        UniqueConstraint("person_id", name="uq_accounts_person"),
+        Index("ix_accounts_balance", "balance_cents"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    person_id: Mapped[int] = mapped_column(
+        ForeignKey("persons.id", ondelete="CASCADE"), nullable=False
+    )
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", nullable=False)
+    balance_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_consumption_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_deposit_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_invoiced_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_entry_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    person: Mapped["Person"] = relationship(back_populates="account")
+    entries: Mapped[list["LedgerEntry"]] = relationship(
+        back_populates="account",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="LedgerEntry.id",
+    )
+
+    @property
+    def has_credit(self) -> bool:
+        return int(self.balance_cents) > 0
+
+    @property
+    def has_debt(self) -> bool:
+        return int(self.balance_cents) < 0
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Account person={self.person_id} balance={self.balance_cents}>"
+
+
+class Deposit(Base, TimestampMixin):
+    """A payment received from a person, entered by the administrator.
+
+    This is also how an actual PayPal or bank transfer is recorded: sending a
+    PayPal.Me link only *requests* payment and never marks anything as paid.
+    """
+
+    __tablename__ = "deposits"
+    __table_args__ = (
+        CheckConstraint("amount_cents > 0", name="ck_deposit_amount_positive"),
+        Index("ix_deposits_person_paid", "person_id", "paid_at"),
+        Index("ix_deposits_email_status", "email_status", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    person_id: Mapped[int] = mapped_column(
+        ForeignKey("persons.id", ondelete="CASCADE"), nullable=False
+    )
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", nullable=False)
+    payment_type: Mapped[PaymentType] = mapped_column(
+        _enum(PaymentType, "payment_type"), default=PaymentType.BAR, nullable=False
+    )
+    paid_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(64))
+    balance_before_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    balance_after_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Mail delivery is tracked here but never shares the fate of the booking:
+    # a failed mail leaves the deposit in place and can be retried on its own.
+    email_status: Mapped[DepositEmailStatus] = mapped_column(
+        _enum(DepositEmailStatus, "deposit_email_status"),
+        default=DepositEmailStatus.OFFEN,
+        nullable=False,
+    )
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    email_error: Mapped[str | None] = mapped_column(Text)
+    email_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    person: Mapped["Person"] = relationship(back_populates="deposits")
+    ledger_entries: Mapped[list["LedgerEntry"]] = relationship(
+        back_populates="deposit", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Deposit person={self.person_id} {self.amount_cents}>"
+
+
+class LedgerEntry(Base):
+    """One immutable movement on a credit account.
+
+    Rows are only ever appended. A wrong booking is balanced by a separate
+    ``KORREKTUR`` entry, never by editing or deleting history. ``consumption_id``
+    and ``deposit_id`` are UNIQUE, which makes double processing impossible at
+    the database level.
+    """
+
+    __tablename__ = "ledger_entries"
+    __table_args__ = (
+        UniqueConstraint("consumption_id", name="uq_ledger_consumption"),
+        UniqueConstraint("deposit_id", name="uq_ledger_deposit"),
+        UniqueConstraint("reverses_entry_id", name="uq_ledger_reverses"),
+        Index("ix_ledger_person_created", "person_id", "created_at"),
+        Index("ix_ledger_account_created", "account_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    person_id: Mapped[int] = mapped_column(
+        ForeignKey("persons.id", ondelete="CASCADE"), nullable=False
+    )
+    entry_type: Mapped[LedgerEntryType] = mapped_column(
+        _enum(LedgerEntryType, "ledger_entry_type"), nullable=False
+    )
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_before_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_after_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    consumption_id: Mapped[int | None] = mapped_column(
+        ForeignKey("consumptions.id", ondelete="CASCADE")
+    )
+    deposit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("deposits.id", ondelete="CASCADE")
+    )
+    invoice_id: Mapped[int | None] = mapped_column(
+        ForeignKey("invoices.id", ondelete="SET NULL")
+    )
+    # Points at the movement this correction balances. A ``KORREKTUR`` for a
+    # cancellation references the ``VERZEHR`` row; reactivating references that
+    # cancellation. The chain stays auditable and a second reversal is refused.
+    reverses_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ledger_entries.id", ondelete="SET NULL")
+    )
+    credit_applied_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    account: Mapped[Account] = relationship(back_populates="entries")
+    person: Mapped["Person"] = relationship(back_populates="ledger_entries")
+    consumption: Mapped[Consumption | None] = relationship(back_populates="ledger_entries")
+    deposit: Mapped[Deposit | None] = relationship(back_populates="ledger_entries")
+    invoice: Mapped[Invoice | None] = relationship(back_populates="ledger_entries")
+    reversed_entry: Mapped["LedgerEntry | None"] = relationship(
+        remote_side=[id], foreign_keys=[reverses_entry_id]
+    )
+
+    @property
+    def amount_display(self) -> str:
+        return str(int(self.amount_cents))
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<LedgerEntry {self.entry_type.value} {self.amount_cents} "
+            f"-> {self.balance_after_cents}>"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +647,7 @@ def next_meta(key: str, session) -> int:  # pragma: no cover - helper
 
 
 __all__ = [
+    "Account",
     "AdminUser",
     "AppMeta",
     "AuditLog",
@@ -424,12 +655,17 @@ __all__ = [
     "BillingRun",
     "Consumption",
     "ConsumptionStatus",
+    "Deposit",
+    "DepositEmailStatus",
     "EmailLog",
     "Invoice",
     "InvoiceItem",
     "InvoiceStatus",
+    "LedgerEntry",
+    "LedgerEntryType",
     "LoginAttempt",
     "PaymentStatus",
+    "PaymentType",
     "Person",
     "Product",
     "SchedulerState",

@@ -28,13 +28,16 @@ from sqlalchemy.orm import Session
 
 from ..db import get_engine
 from ..models import (
+    Account,
     AdminUser,
     AppMeta,
     BillingRun,
     Consumption,
+    Deposit,
     EmailLog,
     Invoice,
     InvoiceItem,
+    LedgerEntry,
     Person,
     Product,
     SchedulerState,
@@ -56,6 +59,9 @@ ENTITY_ORDER = [
     (Invoice, "invoices"),
     (InvoiceItem, "invoice_items"),
     (Consumption, "consumptions"),
+    (Account, "accounts"),
+    (Deposit, "deposits"),
+    (LedgerEntry, "ledger_entries"),
     (Setting, "settings"),
     (AdminUser, "admin_users"),
     (BillingRun, "billing_runs"),

@@ -8,14 +8,22 @@ from flask import Blueprint, flash, g, redirect, render_template, request, url_f
 from sqlalchemy import asc, func, or_, select
 
 from ..models import (
+    Account,
     Consumption,
     ConsumptionStatus,
+    Deposit,
+    DepositEmailStatus,
     Invoice,
     InvoiceStatus,
+    LedgerEntry,
+    PaymentType,
     Person,
 )
+from ..money import MoneyError, format_cents
 from ..security import audit, login_required, setup_required, validate_csrf
+from ..services.accounts import set_opening_balance, summary as account_summary
 from ..services.billing import get_tz, open_balance_cents
+from ..services.deposits import send_deposit_confirmation
 from ..services.export import consumptions_csv
 from ..services.stats import person_history
 from ..settings_service import Settings
@@ -24,6 +32,14 @@ from ..validators import Validator
 log = logging.getLogger(__name__)
 
 bp = Blueprint("persons", __name__, url_prefix="/personen")
+
+# Wording for the deposit mail state, kept out of the template.
+DEPOSIT_EMAIL_LABELS = {
+    DepositEmailStatus.OFFEN: "versenden noch ausstehend",
+    DepositEmailStatus.GESENDET: "Bestaetigung versendet",
+    DepositEmailStatus.FEHLGESCHLAGEN: "Versand fehlgeschlagen",
+    DepositEmailStatus.NICHT_GESENDET: "ohne E-Mail erfasst",
+}
 
 
 @bp.route("/")
@@ -53,6 +69,7 @@ def index():
 
     balances: dict[int, int] = {}
     open_counts: dict[int, int] = {}
+    credit_totals: dict[int, int] = {}
     if people:
         ids = [p.id for p in people]
         balances = {
@@ -77,6 +94,15 @@ def index():
                 .group_by(Consumption.person_id)
             ).all()
         }
+        # Guthaben aus einer Abfrage fuer die ganze Liste, statt pro Person.
+        credit_totals = {
+            int(pid): int(total or 0)
+            for pid, total in db.execute(
+                select(Account.person_id, func.sum(Account.balance_cents))
+                .where(Account.person_id.in_(ids))
+                .group_by(Account.person_id)
+            ).all()
+        }
 
     last_invoices: dict[int, Invoice] = {}
     if people:
@@ -96,11 +122,13 @@ def index():
         persons=people,
         balances=balances,
         open_counts=open_counts,
+        credit_totals=credit_totals,
         last_invoices=last_invoices,
         query=query,
         show_inactive=show_inactive,
         currency=settings.currency,
         total_open=sum(balances.values()),
+        total_credit=sum(v for v in credit_totals.values() if v > 0),
     )
 
 
@@ -311,6 +339,252 @@ def export_csv(person_id: int):
     return _csv_response(
         data, f"verzehr-{person.first_name}-{person.last_name}".replace(" ", "_")
     )
+
+
+@bp.route("/<int:person_id>/konto", methods=["GET"])
+@setup_required
+@login_required
+def account(person_id: int):
+    """Full account view: balance, deposits and the sorted movement history."""
+    db = g.db
+    settings = Settings(db)
+    person = db.get(Person, person_id)
+    if person is None:
+        flash("Person nicht gefunden.", "error")
+        return redirect(url_for("persons.index"))
+
+    sort = (request.args.get("sort") or "datum").strip()
+    direction = (request.args.get("dir") or "desc").strip()
+    if direction not in {"asc", "desc"}:
+        direction = "desc"
+
+    entries_query = select(LedgerEntry).where(LedgerEntry.person_id == person_id)
+    sort_columns = {
+        "datum": LedgerEntry.created_at,
+        "betrag": LedgerEntry.amount_cents,
+        "saldo": LedgerEntry.balance_after_cents,
+        "typ": LedgerEntry.entry_type,
+    }
+    column = sort_columns.get(sort, LedgerEntry.created_at)
+    entries_query = entries_query.order_by(
+        column.asc() if direction == "asc" else column.desc(), LedgerEntry.id.desc()
+    )
+    entries = list(db.execute(entries_query).scalars())
+
+    # Preserve a non-default sort across pagination links.
+    sort_arg = "" if sort == "datum" else f"&sort={sort}"
+
+    page = max(1, int(request.args.get("page") or 1))
+    per_page = 50
+    total = len(entries)
+    start = (page - 1) * per_page
+    page_entries = entries[start : start + per_page]
+
+    deposits = list(
+        db.execute(
+            select(Deposit)
+            .where(Deposit.person_id == person_id)
+            .order_by(Deposit.paid_at.desc(), Deposit.id.desc())
+        ).scalars()
+    )
+    info = account_summary(db, person_id)
+
+    return render_template(
+        "persons/account.html",
+        person=person,
+        info=info,
+        entries=page_entries,
+        deposits=deposits,
+        page=page,
+        per_page=per_page,
+        total=total,
+        has_more=start + per_page < total,
+        sort=sort,
+        direction=direction,
+        sort_arg=sort_arg,
+        currency=settings.currency,
+        payment_types=list(PaymentType),
+        email_status_labels=DEPOSIT_EMAIL_LABELS,
+    )
+
+
+@bp.route("/<int:person_id>/einzahlung", methods=["GET", "POST"])
+@setup_required
+@login_required
+def deposit(person_id: int):
+    """Record a deposit and send its confirmation.
+
+    The booking is committed first and the mail is attempted afterwards, so a
+    failing SMTP server can never lose the deposit.
+    """
+    validate_csrf()
+    db = g.db
+    settings = Settings(db)
+    person = db.get(Person, person_id)
+    if person is None:
+        flash("Person nicht gefunden.", "error")
+        return redirect(url_for("persons.index"))
+
+    if request.method == "GET":
+        return render_template(
+            "persons/deposit.html",
+            person=person,
+            form={"payment_type": PaymentType.BAR.value, "send_email": "1"},
+            errors={},
+            payment_types=list(PaymentType),
+            currency=settings.currency,
+            info=account_summary(db, person_id),
+        )
+
+    v = Validator()
+    raw = request.form.get("amount")
+    amount = v.money("amount", raw, currency=settings.currency)
+    payment_type = v.choice(
+        "payment_type",
+        request.form.get("payment_type"),
+        [t.value for t in PaymentType],
+        default=PaymentType.BAR.value,
+    )
+    note = v.optional_text("note", request.form.get("note"), max_len=500, label="Notiz")
+    send_email = bool(request.form.get("send_email"))
+
+    if v.errors:
+        flash(v.first_error(), "error")
+        return render_template(
+            "persons/deposit.html",
+            person=person,
+            form=request.form,
+            errors=v.errors,
+            payment_types=list(PaymentType),
+            currency=settings.currency,
+            info=account_summary(db, person_id),
+        )
+
+    from ..services.accounts import post_deposit
+
+    try:
+        dep, _entry = post_deposit(
+            db,
+            person,
+            int(amount),
+            payment_type=PaymentType(payment_type),
+            note=note,
+            created_by=_current_admin_name(),
+            currency=settings.currency,
+            send_email=send_email,
+        )
+    except MoneyError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("persons.deposit", person_id=person_id))
+
+    db.commit()  # money first, mail second
+    audit(
+        db,
+        "deposit.created",
+        target=f"{person.full_name} (#{person.id})",
+        detail=format_cents(int(dep.amount_cents), settings.currency),
+    )
+
+    if send_email:
+        result = send_deposit_confirmation(db, settings, dep)
+        if result.ok:
+            flash("Einzahlung gebucht und Bestaetigung versendet.", "success")
+        else:
+            flash(
+                f"Einzahlung gebucht, aber die Bestaetigung ging nicht raus: "
+                f"{result.error}",
+                "warning",
+            )
+    else:
+        flash("Einzahlung gebucht.", "success")
+
+    return redirect(url_for("persons.account", person_id=person_id))
+
+
+@bp.route("/<int:person_id>/einzahlung/<int:deposit_id>/erneut-senden", methods=["POST"])
+@setup_required
+@login_required
+def resend_deposit_mail(person_id: int, deposit_id: int):
+    """Re-send a confirmation mail without touching the balance."""
+    validate_csrf()
+    db = g.db
+    settings = Settings(db)
+    person = db.get(Person, person_id)
+    dep = db.get(Deposit, deposit_id)
+    if person is None or dep is None or dep.person_id != person.id:
+        flash("Einzahlung nicht gefunden.", "error")
+        return redirect(url_for("persons.index"))
+
+    result = send_deposit_confirmation(db, settings, dep)
+    audit(db, "deposit.mail_resent", target=f"{person.full_name} (#{person.id})")
+    if result.ok:
+        flash("Bestaetigung erneut versendet.", "success")
+    else:
+        flash(f"Versand erneut fehlgeschlagen: {result.error}", "warning")
+    return redirect(url_for("persons.account", person_id=person_id))
+
+
+@bp.route("/<int:person_id>/konto/anfangsbestand", methods=["POST"])
+@setup_required
+@login_required
+def opening_balance(person_id: int):
+    """Set the balance by hand, for money that predates the account.
+
+    Done as one visible correction, never by editing history. The system never
+    invents these amounts itself.
+    """
+    validate_csrf()
+    db = g.db
+    settings = Settings(db)
+    person = db.get(Person, person_id)
+    if person is None:
+        flash("Person nicht gefunden.", "error")
+        return redirect(url_for("persons.index"))
+
+    v = Validator()
+    raw = request.form.get("balance")
+    target = v.money(
+        "balance",
+        raw,
+        currency=settings.currency,
+        allow_negative=True,
+        # 0 ist ein gueltiger Zielwert: damit wird eine Schuldsaldierung auf 0
+        # gesetzt, nicht abgelehnt.
+        allow_zero=True,
+    )
+    reason = v.optional_text("reason", request.form.get("reason"), max_len=300, label="Grund")
+    if v.errors:
+        flash(v.first_error(), "error")
+        return redirect(url_for("persons.account", person_id=person_id))
+
+    entry = set_opening_balance(
+        db,
+        person,
+        int(target),
+        reason=reason or "Anfangsbestand manuell korrigiert",
+        currency=settings.currency,
+    )
+    db.commit()
+    if entry is None:
+        flash("Der Kontostand war bereits korrekt - nichts geaendert.", "info")
+    else:
+        audit(
+            db,
+            "account.opening_balance",
+            target=f"{person.full_name} (#{person.id})",
+            detail=reason or "Anfangsbestand korrigiert",
+        )
+        flash("Anfangsbestand wurde als Korrekturbuchung gesetzt.", "success")
+    return redirect(url_for("persons.account", person_id=person_id))
+
+
+def _current_admin_name() -> str | None:
+    from ..security import current_admin
+
+    admin = current_admin(g.db)
+    if admin is None:
+        return None
+    return getattr(admin, "username", None)
 
 
 def _csv_response(data: str, name: str):

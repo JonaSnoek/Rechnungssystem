@@ -47,12 +47,15 @@ def exponent(currency: str) -> int:
     return CURRENCY_EXPONENT.get((currency or "EUR").upper(), 2)
 
 
-def parse_to_cents(value: Any, currency: str = "EUR") -> int:
+def parse_to_cents(value: Any, currency: str = "EUR", *, allow_negative: bool = False) -> int:
     """Parse user input into integer cents.
 
     Accepts ``int`` (already cents), ``str`` ("4,40", "4.40", "4", "4.4"),
     ``float`` (converted via str to avoid binary artefacts) and ``Decimal``.
-    Raises :class:`MoneyError` for negative, non numeric or too precise input.
+    Raises :class:`MoneyError` for non numeric or too precise input.
+
+    Negative amounts are rejected unless ``allow_negative`` is set. Only the
+    administrative opening balance uses that, where a debt is a legitimate value.
     """
     if value is None or value == "":
         raise MoneyError("Betrag fehlt")
@@ -96,7 +99,7 @@ def parse_to_cents(value: Any, currency: str = "EUR") -> int:
     if not dec.is_finite():
         raise MoneyError("Betrag ist keine gueltige Zahl")
 
-    if dec < 0:
+    if dec < 0 and not allow_negative:
         raise MoneyError("Betrag darf nicht negativ sein")
 
     step = Decimal(1).scaleb(-exp)

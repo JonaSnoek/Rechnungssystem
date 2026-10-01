@@ -403,6 +403,34 @@ sudo ./update.sh
 Bei einem Server ohne Git (Variante B oder C) zuerst die neuen Dateien
 übertragen, dann `sudo ./update.sh`.
 
+### Update mit Schemaänderung (Guthabenkonten)
+
+Migrationen verändern die Datenbank. `update.sh` legt vorher ein Backup an und
+bricht ab, wenn das nicht gelingt. Es lohnt sich zusätzlich, die Rohdaten
+gesichert zu haben, weil die App im **WAL-Modus** läuft: die letzten Buchungen
+liegen in `payment.db-wal` und stehen nicht in `payment.db`.
+
+```bash
+sudo systemctl stop verzehr-web verzehr-scheduler
+sudo -u verzehr .venv/bin/python manage.py backup
+sudo cp -a instance /root/verzehr-backup-$(date +%F-%H%M)
+sudo systemctl start verzehr-scheduler verzehr-web
+```
+
+`instance/secrets.env` liegt darin und enthält SMTP-Passwort und Session-Key.
+Diesen Ordner nicht ins Git-Repository und nicht auf fremde Rechner kopieren.
+
+Migrationen vorher gegen eine Kopie testen, ohne die echten Daten anzufassen:
+
+```bash
+sudo systemctl stop verzehr-web verzehr-scheduler
+sudo mkdir -p /tmp/mig-test && sudo chown verzehr:verzehr /tmp/mig-test
+sudo -u verzehr cp instance/payment.db* /tmp/mig-test/
+sudo -u verzehr env DATABASE_URL=sqlite:////tmp/mig-test/payment.db \
+  .venv/bin/python manage.py migrate
+sudo systemctl start verzehr-scheduler verzehr-web
+```
+
 Rollback bei einem fehlgeschlagenen Update:
 
 ```bash

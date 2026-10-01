@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Konto {{ person.full_name }} - {{ app_name }}{% endblock %}
+{% block page_title %}Konto {{ person.full_name }}{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  Kontostand
+  <strong>{{ info.balance_cents|money(currency) }}</strong>
+  {% if info.balance_cents > 0 %}<span class="badge badge-aktiv">Guthaben</span>
+  {% elif info.balance_cents < 0 %}<span class="badge badge-inaktiv">Schulden</span>
+  {% else %}<span class="badge">ausgeglichen</span>{% endif %}
+</span>
+{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('persons.detail', person_id=person.id) }}">Person</a>
+  <a class="btn btn-primary" href="{{ url_for('persons.deposit', person_id=person.id) }}">
+    {{ icon('plus') }}<span>Einzahlung</span></a>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  <div class="grid grid-4">
+    <div class="stat {{ 'stat-accent' if info.balance_cents else '' }}">
+      <span class="stat-label">Kontostand</span>
+      <span class="stat-value">{{ info.balance_cents|money(currency) }}</span>
+      <span class="stat-hint">Einzahlungen minus Verzehr</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Einzahlungen gesamt</span>
+      <span class="stat-value">{{ info.total_deposit_cents|money(currency) }}</span>
+      <span class="stat-hint">{{ deposits|length }} erfasst</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Verzehr gesamt</span>
+      <span class="stat-value">{{ info.total_consumption_cents|money(currency) }}</span>
+      <span class="stat-hint">bereits auf dem Konto gebucht</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Offener Betrag</span>
+      <span class="stat-value">{{ info.open_consumption_cents|money(currency) }}</span>
+      <span class="stat-hint">noch nicht abgerechnet</span>
+    </div>
+  </div>
+
+  {% if deposits %}
+  <div class="card">
+    <div class="card-head">{{ icon('wallet') }}<h2>Einzahlungen</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Zahlart</th>
+            <th class="num">Betrag</th>
+            <th class="num">Kontostand danach</th>
+            <th>Bestaetigung</th>
+            <th>Notiz</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for dep in deposits %}
+          <tr>
+            <td class="small">{{ dep.paid_at|localdt('%d.%m.%Y') }}</td>
+            <td class="small">{{ dep.payment_type.value }}</td>
+            <td class="num"><strong>{{ dep.amount_cents|money(currency) }}</strong></td>
+            <td class="num">{{ dep.balance_after_cents|money(currency) }}</td>
+            <td class="small">
+              {{ email_status_labels.get(dep.email_status, dep.email_status.value) }}
+              {% if dep.email_error %}
+                <div class="tiny subtle">{{ dep.email_error[:80] }}</div>
+              {% endif %}
+            </td>
+            <td class="tiny subtle">{{ dep.note or '' }}</td>
+            <td>
+              {% if dep.email_status.value != 'GESENDET' %}
+              <form method="post" class="inline-form"
+                    action="{{ url_for('persons.resend_deposit_mail', person_id=person.id, deposit_id=dep.id) }}">
+                {{ csrf_field() }}
+                <button type="submit" class="btn btn-sm" title="Bestaetigung erneut senden">Erneut senden</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-head">{{ icon('clock') }}<h2>Kontobewegungen</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th><a href="{{ url_for('persons.account', person_id=person.id, sort='datum', dir=('asc' if sort == 'datum' and direction == 'desc' else 'desc')) }}">Datum{{ ' ^' if sort == 'datum' and direction == 'asc' else (' v' if sort == 'datum' else '') }}</a></th>
+            <th>Art</th>
+            <th class="num"><a href="{{ url_for('persons.account', person_id=person.id, sort='betrag', dir=('asc' if sort == 'betrag' and direction == 'desc' else 'desc')) }}">Betrag{{ ' ^' if sort == 'betrag' and direction == 'asc' else (' v' if sort == 'betrag' else '') }}</a></th>
+            <th class="num"><a href="{{ url_for('persons.account', person_id=person.id, sort='saldo', dir=('asc' if sort == 'saldo' and direction == 'desc' else 'desc')) }}">Saldo danach{{ ' ^' if sort == 'saldo' and direction == 'asc' else (' v' if sort == 'saldo' else '') }}</a></th>
+            <th>Beleg</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+          <tr>
+            <td class="small">{{ entry.created_at|localdt('%d.%m.%Y %H:%M') }}</td>
+            <td class="small">
+              {{ entry.entry_type.value }}
+              {% if entry.note %}<div class="tiny subtle">{{ entry.note[:60] }}</div>{% endif %}
+            </td>
+            <td class="num {{ 'strong' if entry.amount_cents > 0 else '' }}">
+              {{ entry.amount_cents|money(currency) }}
+            </td>
+            <td class="num">{{ entry.balance_after_cents|money(currency) }}</td>
+            <td class="tiny subtle">
+              {% if entry.consumption_id %}
+                <a href="{{ url_for('consumption.entry', person_id=person.id) }}">Buchung #{{ entry.consumption_id }}</a>
+              {% elif entry.deposit_id %}
+                Einzahlung #{{ entry.deposit_id }}
+              {% elif entry.invoice_id %}
+                <a href="{{ url_for('invoices.detail', invoice_id=entry.invoice_id) }}">Rechnung</a>
+              {% else %}Korrektur{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if total > per_page %}
+    <div class="card-foot">
+      {% if page > 1 %}
+      <a class="btn btn-sm" href="{{ url_for('persons.account', person_id=person.id, sort=sort, dir=direction, page=page-1) }}">Zurueck</a>
+      {% endif %}
+      <span class="small subtle">Seite {{ page }} &middot; {{ total }} Bewegungen</span>
+      {% if has_more %}
+      <a class="btn btn-sm" href="{{ url_for('persons.account', person_id=person.id, sort=sort, dir=direction, page=page+1) }}">Weiter</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-sidebar">
+    <div class="card">
+      <div class="card-head">{{ icon('edit') }}<h2>Anfangsbestand korrigieren</h2></div>
+      <div class="card-body">
+        <p class="small subtle">
+          Nur fuer Geld, das vor der Kontofuehrung eingegangen ist und nie erfasst
+          wurde. Das System erfindet keine Zahlungen - der Betrag wird als
+          sichtbare Korrekturbuchung eingetragen.
+        </p>
+        <form method="post" action="{{ url_for('persons.opening_balance', person_id=person.id) }}"
+              class="stack">
+          {{ csrf_field() }}
+          <label class="field">
+            <span>Ziel-Kontostand ({{ currency }})</span>
+            <input type="text" name="balance" inputmode="decimal" placeholder="z.B. 25,00">
+          </label>
+          <label class="field">
+            <span>Grund</span>
+            <input type="text" name="reason" maxlength="300" placeholder="z.B. Bargeld vor Kontofuehrung">
+          </label>
+          <button type="submit" class="btn btn-primary">Korrekturbuchung setzen</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">{{ icon('invoice') }}<h2>Letzte Rechnung</h2></div>
+      <div class="card-body">
+        {% if info.last_invoice %}
+          <p class="small">
+            <a href="{{ url_for('invoices.detail', invoice_id=info.last_invoice.id) }}">
+              {{ info.last_invoice.invoice_number }}</a>
+            &middot; {{ info.last_invoice.total_cents|money(currency) }}
+          </p>
+          <p class="small subtle">
+            Verrechnet mit Guthaben: {{ info.last_invoice.credit_applied_cents|money(currency) }}<br>
+            Zu zahlen: {{ info.last_invoice.amount_due_cents|money(currency) }}
+          </p>
+        {% else %}
+          <p class="small subtle">Noch keine Rechnung.</p>
+        {% endif %}
+        {% if info.last_deposit %}
+        <p class="small subtle">
+          Letzte Einzahlung: {{ info.last_deposit.paid_at|localdt('%d.%m.%Y') }}
+          &middot; {{ info.last_deposit.amount_cents|money(currency) }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

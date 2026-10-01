@@ -7,11 +7,15 @@ scheduler disabled and a test secret key.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
 BASE_DATE = date(2026, 9, 28)
+# Bookings default to this timestamp. It used to be utcnow(), which silently
+# broke every billing test as soon as the real date moved past BASE_DATE: the
+# billing run for BASE_DATE then never saw the booking and created no invoice.
+BOOKING_TIME = datetime(2026, 9, 28, 12, 0, 0)
 
 
 @pytest.fixture()
@@ -145,7 +149,7 @@ def configured(app, db):
 @pytest.fixture()
 def book(db):
     """Create a consumption row for the configured person."""
-    from app.models import Consumption, ConsumptionStatus, utcnow
+    from app.models import Consumption, ConsumptionStatus
 
     def _book(person_id, name, cents, quantity=1, at=None, product_id=None):
         total = cents * quantity
@@ -158,7 +162,7 @@ def book(db):
             total_cents=total,
             currency="EUR",
             status=ConsumptionStatus.OFFEN,
-            created_at=at or utcnow(),
+            created_at=at or BOOKING_TIME,
         )
         db.add(row)
         db.commit()

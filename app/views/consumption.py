@@ -9,6 +9,14 @@ from sqlalchemy import asc, func, select
 
 from ..models import Consumption, ConsumptionStatus, Person, Product, new_token
 from ..security import audit, login_required, setup_required, validate_csrf
+from ..services.accounts import (
+    balance_cents as account_balance_cents,
+)
+from ..services.accounts import (
+    post_consumption,
+    reopen_consumption,
+    reverse_consumption,
+)
 from ..services.billing import get_tz, local_day_bounds, local_now, open_balance_cents
 from ..settings_service import Settings
 
@@ -170,21 +178,23 @@ def save():
             flash(f"{product.name} hat einen ungueltigen Preis.", "error")
             continue
         line_total = int(product.price_cents) * qty
-        db.add(
-            Consumption(
-                person_id=person.id,
-                product_id=product.id,
-                product_name=product.name,
-                product_description=product.description,
-                unit_price_cents=product.price_cents,
-                quantity=qty,
-                total_cents=line_total,
-                currency=currency,
-                status=ConsumptionStatus.OFFEN,
-                note=note,
-                batch_id=batch_id,
-            )
+        row = Consumption(
+            person_id=person.id,
+            product_id=product.id,
+            product_name=product.name,
+            product_description=product.description,
+            unit_price_cents=product.price_cents,
+            quantity=qty,
+            total_cents=line_total,
+            currency=currency,
+            status=ConsumptionStatus.OFFEN,
+            note=note,
+            batch_id=batch_id,
         )
+        db.add(row)
+        # Die Buchung belastet das Konto sofort, nicht erst beim Rechnungsversand.
+        db.flush()
+        post_consumption(db, row, currency=currency)
         total += line_total
         created += 1
 
@@ -250,10 +260,13 @@ def quick():
         note=(request.form.get("note") or "").strip()[:255] or None,
     )
     db.add(consumption)
+    db.flush()
+    # Belastung des Guthabenkontos sofort bei der Erfassung.
+    post_consumption(db, consumption, currency=currency)
     db.commit()
     audit(db, "consumption.quick", target=person.full_name, detail=f"{qty}x {product.name}")
 
-    balance = open_balance_cents(db, person.id)
+    balance = account_balance_cents(db, person.id)
     from ..money import format_cents
 
     return jsonify(
@@ -279,6 +292,7 @@ def quick():
 def cancel(consumption_id: int):
     validate_csrf()
     db = g.db
+    settings = Settings(db)
     consumption = db.get(Consumption, consumption_id)
     if consumption is None:
         flash("Buchung nicht gefunden.", "error")
@@ -292,6 +306,9 @@ def cancel(consumption_id: int):
         return redirect(request.referrer or url_for("main.dashboard"))
     consumption.status = ConsumptionStatus.STORNIERT
     consumption.invoice_id = None
+    # Ausgleich durch eine Gegenbuchung; die urspruengliche Verzehrbewegung
+    # bleibt in der Kontohistorie sichtbar.
+    reverse_consumption(db, consumption, currency=settings.currency)
     db.commit()
     audit(
         db,
@@ -309,6 +326,7 @@ def reopen(consumption_id: int):
     """Set a cancelled booking back to OFFEN."""
     validate_csrf()
     db = g.db
+    settings = Settings(db)
     consumption = db.get(Consumption, consumption_id)
     if consumption is None:
         flash("Buchung nicht gefunden.", "error")
@@ -317,6 +335,7 @@ def reopen(consumption_id: int):
         flash("Buchung ist abgerechnet.", "warning")
         return redirect(request.referrer or url_for("main.dashboard"))
     consumption.status = ConsumptionStatus.OFFEN
+    reopen_consumption(db, consumption, currency=settings.currency)
     db.commit()
     audit(db, "consumption.reopened", target=consumption.product_name)
     flash("Buchung wieder aktiviert.", "success")

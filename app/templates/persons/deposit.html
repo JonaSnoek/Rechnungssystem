@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, csrf_field %}
+{% block title %}Einzahlung - {{ person.full_name }} - {{ app_name }}{% endblock %}
+{% block page_title %}Einzahlung {{ person.full_name }}{% endblock %}
+{% block page_subtitle %}
+<span class="topbar-sub">
+  Kontostand {{ info.balance_cents|money(currency) }}
+</span>
+{% endblock %}
+{% block topbar_actions %}
+  <a class="btn" href="{{ url_for('persons.account', person_id=person.id) }}">Zurueck zum Konto</a>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  {% if errors %}
+  <div class="card">
+    <div class="card-body">
+      {% for field, message in errors.items() %}
+      <p class="small">{{ message }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-head">{{ icon('wallet') }}<h2>Betrag erfassen</h2></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('persons.deposit', person_id=person.id) }}" class="stack">
+        {{ csrf_field() }}
+        <label class="field">
+          <span>Betrag ({{ currency }})</span>
+          <input type="text" name="amount" inputmode="decimal" placeholder="z.B. 20,00"
+                 value="{{ form.get('amount', '') }}" autofocus required>
+        </label>
+        <label class="field">
+          <span>Zahlart</span>
+          <select name="payment_type">
+            {% for ptype in payment_types %}
+            <option value="{{ ptype.value }}"
+              {{ 'selected' if form.get('payment_type') == ptype.value }}>{{ ptype.value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span>Notiz (optional)</span>
+          <input type="text" name="note" maxlength="500" value="{{ form.get('note', '') }}"
+                 placeholder="z.B. Bargeld, PayPal-Referenz">
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="send_email" value="1"
+                 {{ 'checked' if form.get('send_email') }}>
+          <span class="small">Bestaetigung per E-Mail senden</span>
+        </label>
+        <p class="tiny subtle">
+          Die Einzahlung wird sofort gebucht. Schlaegt der E-Mail-Versand fehl,
+          bleibt die Einzahlung trotzdem erhalten und laesst sich spaeter erneut
+          senden.
+        </p>
+        <button type="submit" class="btn btn-primary">Einzahlung buchen</button>
+      </form>
+    </div>
+  </div>
+
+  {% if info.last_deposit %}
+  <div class="card">
+    <div class="card-head"><h2>Letzte Einzahlung</h2></div>
+    <div class="card-body">
+      <p class="small">
+        {{ info.last_deposit.paid_at|localdt('%d.%m.%Y') }}
+        &middot; {{ info.last_deposit.amount_cents|money(currency) }}
+        &middot; {{ info.last_deposit.payment_type.value }}
+      </p>
+      <p class="small subtle">
+        Kontostand danach: {{ info.last_deposit.balance_after_cents|money(currency) }}
+      </p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

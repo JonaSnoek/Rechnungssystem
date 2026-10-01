@@ -117,17 +117,24 @@ class Validator:
         return text
 
     def money(
-        self, field: str, raw, *, currency: str = "EUR", required: bool = True, allow_zero: bool = False
+        self,
+        field: str,
+        raw,
+        *,
+        currency: str = "EUR",
+        required: bool = True,
+        allow_zero: bool = False,
+        allow_negative: bool = False,
     ) -> int:
         try:
-            cents = parse_to_cents(raw, currency)
+            cents = parse_to_cents(raw, currency, allow_negative=allow_negative)
         except MoneyError as exc:
             self.add(field, str(exc))
             return 0
         if cents is None:
             self.add(field, "Betrag ist erforderlich")
             return 0
-        if cents < 0:
+        if cents < 0 and not allow_negative:
             self.add(field, "Betrag darf nicht negativ sein")
             return 0
         if not allow_zero and cents == 0:

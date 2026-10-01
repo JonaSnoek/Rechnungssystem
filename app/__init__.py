@@ -79,6 +79,8 @@ def create_app(
         if applied:
             log.info("Migrationen ausgefuehrt: %s", ", ".join(applied))
     _ensure_seed_rows()
+    if run_migrations:
+        _backfill_accounts()
 
     app.extensions["settings"] = cfg
     app.extensions["db_session"] = None
@@ -126,6 +128,29 @@ def _ensure_seed_rows() -> None:
         for key, value in DEFAULTS.items():
             if key not in existing:
                 settings.set(key, value)
+
+
+def _backfill_accounts() -> None:
+    """Carry records that predate migration 003 into the credit accounts.
+
+    Runs after the schema exists and does nothing once the marker is set, so it
+    costs a single indexed read per start. A failure must never keep the app from
+    starting: accounts can be repaired by hand, a boot loop cannot.
+    """
+    from .db import session_scope
+    from .services.accounts import ensure_accounts
+
+    try:
+        with session_scope() as session:
+            stats = ensure_accounts(session)
+        if stats["accounts_created"] or stats["entries_created"]:
+            log.info(
+                "Guthabenkonten uebernommen: %s Konten, %s Bewegungen",
+                stats["accounts_created"],
+                stats["entries_created"],
+            )
+    except Exception:  # pragma: no cover - defensive, start must survive
+        log.exception("Rueckuebernahme der Guthabenkonten fehlgeschlagen")
 
 
 def _register_request_hooks(app: Flask) -> None:

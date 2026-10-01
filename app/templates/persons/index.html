@@ -2,7 +2,7 @@
 {% from "_macros.html" import icon, csrf_field %}
 {% block title %}Personen - {{ app_name }}{% endblock %}
 {% block page_title %}Personen{% endblock %}
-{% block page_subtitle %}<span class="topbar-sub">{{ persons|length }} angezeigt &middot; offener Gesamtbetrag {{ total_open|money(currency) }}</span>{% endblock %}
+{% block page_subtitle %}<span class="topbar-sub">{{ persons|length }} angezeigt &middot; offener Gesamtbetrag {{ total_open|money(currency) }} &middot; Guthaben gesamt {{ total_credit|money(currency) }}</span>{% endblock %}
 {% block topbar_actions %}
   <a class="btn" href="{{ url_for('system.export_consumptions') }}">{{ icon('download') }}<span>CSV</span></a>
   <a class="btn btn-primary" href="{{ url_for('persons.create') }}">{{ icon('plus') }}<span>Person anlegen</span></a>
@@ -32,6 +32,7 @@
           <th>Name</th>
           <th>E-Mail</th>
           <th class="num">Offener Betrag</th>
+          <th class="num">Kontostand</th>
           <th>Letzte Rechnung</th>
           <th>Status</th>
           <th></th>
@@ -40,6 +41,7 @@
       <tbody>
         {% for person in persons %}
         {% set balance = balances.get(person.id, 0) %}
+        {% set credit = credit_totals.get(person.id, 0) %}
         {% set last = last_invoices.get(person.id) %}
         <tr>
           <td>
@@ -55,6 +57,15 @@
             {% else %}
               <span class="subtle">0,00 {{ currency }}</span>
             {% endif %}
+          </td>
+          <td class="num">
+            <a href="{{ url_for('persons.account', person_id=person.id) }}" class="strong">
+              {{ credit|money(currency) }}</a>
+            <div class="tiny subtle">
+              {% if credit > 0 %}Guthaben
+              {% elif credit < 0 %}Schulden
+              {% else %}ausgeglichen{% endif %}
+            </div>
           </td>
           <td>
             {% if last %}
@@ -73,6 +84,9 @@
           <td>
             <div class="row-actions">
               <a class="btn btn-sm" href="{{ url_for('consumption.entry', person_id=person.id) }}">Verzehr</a>
+              <a class="btn btn-sm" href="{{ url_for('persons.account', person_id=person.id) }}">Konto</a>
+              <a class="btn btn-sm" href="{{ url_for('persons.deposit', person_id=person.id) }}"
+                 title="Einzahlung erfassen">{{ icon('plus') }}<span>Einzahlen</span></a>
               {% if balance %}
                 <form method="post" action="{{ url_for('invoices.person_billing', person_id=person.id) }}"
                       class="inline-form"
@@ -97,6 +111,7 @@
         <tr>
           <td colspan="2">Offener Gesamtbetrag</td>
           <td class="num">{{ total_open|money(currency) }}</td>
+          <td class="num">{{ total_credit|money(currency) }}</td>
           <td colspan="3"></td>
         </tr>
       </tfoot>

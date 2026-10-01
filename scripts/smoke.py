@@ -13,6 +13,7 @@ Exitcode 0 = alles in Ordnung, 1 = mindestens eine Fehlerseite.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -43,15 +44,34 @@ def main() -> int:
     checked = 0
 
     print(f"{len(rules)} Routen gefunden\n")
+    # Platzhalterrouten mit einer erfundenen ID pruefen. Ohne Login liefern sie
+    # eine Weiterleitung, aber keine 500er - das faengt kaputte URL-Regeln ab.
+    placeholder_args = {
+        "person_id": 999999,
+        "product_id": 999999,
+        "consumption_id": 999999,
+        "invoice_id": 999999,
+        "billing_run_id": 999999,
+        "deposit_id": 999999,
+        "backup_id": 999999,
+        "user_id": 999999,
+    }
+
     for rule in rules:
         if "GET" not in (rule.methods or set()):
             continue
         if rule.rule.startswith("/static"):
             continue
-        if "<" in rule.rule:            # Platzhalterrouten ueberspringen
-            continue
         try:
-            response = client.get(rule.rule)
+            # Platzhalter werden in der URL selbst ersetzt, nicht als
+            # query_string - sonst wuerden sie als Formularfelder landen.
+            target = rule.rule
+            for arg in re.findall(r"<(?:[^:>]+:)?([^>]+)>", rule.rule):
+                target = target.replace(
+                    re.search(rf"<(?:[^:>]+:)?{arg}>", rule.rule).group(0),
+                    str(placeholder_args.get(arg, 999999)),
+                )
+            response = client.get(target)
         except Exception as exc:          # noqa: BLE001
             failures.append((rule.rule, 0, f"{type(exc).__name__}: {exc}"))
             continue

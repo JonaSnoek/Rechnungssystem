@@ -68,18 +68,14 @@ du hast am {datum} folgende Sachen verzehrt:
 
 Gesamt: {gesamtbetrag}
 
-Bitte bezahle den offenen Betrag über PayPal:
-
-{paypal_link}
+{kontenuebersicht}
 
 Vielen Dank!""",
     EMAIL_BODY_HTML_TEMPLATE: """<p>Hallo {vorname},</p>
 <p>du hast am <strong>{datum}</strong> folgende Sachen verzehrt:</p>
 {produkte_html}
 <p class="total">Gesamt: <strong>{gesamtbetrag}</strong></p>
-<p>Bitte bezahle den offenen Betrag über PayPal:</p>
-<p class="paypal"><a href="{paypal_link}" class="button">Jetzt {gesamtbetrag} über PayPal bezahlen</a></p>
-<p class="link">PayPal-Link:<br><a href="{paypal_link}">{paypal_link}</a></p>
+{kontenuebersicht_html}
 <p>Vielen Dank!</p>""",
     INVOICE_NUMBER_PREFIX: "RE-",
     INCLUDE_ZERO_ITEMS: "true",

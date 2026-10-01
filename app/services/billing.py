@@ -45,6 +45,9 @@ from ..settings_service import (
     INVOICE_NUMBER_PREFIX,
     Settings,
 )
+from .accounts import balance_cents as account_balance_cents
+from .accounts import get_or_create_account, invoice_balance_snapshot
+from .accounts import invoice_credit_and_due, note_invoice_issued
 from .mail_factory import build_mailer, is_email_configured
 
 log = logging.getLogger(__name__)
@@ -328,24 +331,48 @@ def build_invoice_payload(
     total_cents: int,
     period_date: date,
     invoice_number: str,
+    credit_applied_cents: int = 0,
+    balance_cents: int = 0,
     created_at: datetime | None = None,
 ) -> tuple[str, str, str, str]:
-    """Return ``(paypal_link, subject, text_body, html_body)``."""
+    """Return ``(paypal_link, subject, text_body, html_body)``.
+
+    The invoice is a statement of consumption that is **already** booked on the
+    credit account. It therefore never charges anything again. ``credit_applied``
+    is the part of the total that existing credit covered when the bookings were
+    entered; the remainder is what actually has to be paid.
+
+    A payment link is only produced for a positive remainder. A bill fully
+    covered by credit gets no link at all, and no PayPal username is required in
+    that case.
+    """
     currency = settings.currency
-    username = settings.paypal_username
-    if not username:
-        raise PayPalLinkError(
-            "Kein PayPal.Me-Benutzername konfiguriert. Bitte unter "
-            "Einstellungen -> PayPal hinterlegen."
-        )
+    credit = max(0, min(int(credit_applied_cents), int(total_cents)))
+    due = int(total_cents) - credit
+
     if total_cents < 0:
         raise MoneyError("Betrag darf nicht negativ sein")
     if total_cents == 0:
         raise MoneyError("Betrag ist 0 - es wird keine E-Mail versendet")
 
-    link = build_link(
-        username, total_cents, currency, settings.paypal_base_url
-    )
+    link = ""
+    if due > 0:
+        username = settings.paypal_username
+        if not username:
+            raise PayPalLinkError(
+                "Kein PayPal.Me-Benutzername konfiguriert. Bitte unter "
+                "Einstellungen -> PayPal hinterlegen."
+            )
+        link = build_link(username, due, currency, settings.paypal_base_url)
+    else:
+        # Vollstaendig durch Guthaben gedeckt: kein Link, kein Handle noetig.
+        username = settings.paypal_username or ""
+        log.info(
+            "Rechnung %s ist durch Guthaben gedeckt (Verzehr %s, Guthaben %s)",
+            invoice_number,
+            total_cents,
+            credit,
+        )
 
     rendered = et.render(
         person=person,
@@ -362,6 +389,9 @@ def build_invoice_payload(
         html_template=settings.get(EMAIL_BODY_HTML_TEMPLATE) or "",
         date_format=settings.date_format,
         created_at=created_at,
+        credit_applied_cents=credit,
+        amount_due_cents=due,
+        balance_cents=int(balance_cents),
     )
     if rendered.missing:
         log.warning(
@@ -393,6 +423,15 @@ def create_invoice(
     total_cents = sum(int(i["total_cents"]) for i in items)
     currency = settings.currency
 
+    # Das Konto wird hier nur AUSGELESEN, nie belastet. Der Verzehr ist bereits
+    # bei der Erfassung gebucht; credit_applied dokumentiert, welcher Teil davon
+    # durch damaliges Guthaben gedeckt war.
+    credit_applied, amount_due = invoice_credit_and_due(session, consumptions)
+    # Snapshot aus den Buchungen selbst lesen, damit eine frisch erstellte und
+    # eine rueckuebernommene Rechnung identisch rechnen.
+    balance_before, balance_after = invoice_balance_snapshot(consumptions)
+    current_balance = account_balance_cents(session, person.id)
+
     prefix = settings.get(INVOICE_NUMBER_PREFIX) or "RE-"
     invoice_number = _next_invoice_number(session, prefix, period_date)
 
@@ -403,6 +442,8 @@ def create_invoice(
         total_cents=total_cents,
         period_date=period_date,
         invoice_number=invoice_number,
+        credit_applied_cents=credit_applied,
+        balance_cents=current_balance,
     )
 
     invoice = Invoice(
@@ -414,16 +455,21 @@ def create_invoice(
         currency=currency,
         status=InvoiceStatus.OFFEN,
         payment_status=PaymentStatus.OFFEN,
-        paypal_link=link,
-        paypal_username=settings.paypal_username,
+        paypal_link=link or None,
+        paypal_username=settings.paypal_username or None,
         email_subject=subject,
         email_body=text_body,
         email_html=html_body,
         is_automatic=trigger == "automatic",
         created_by=created_by,
+        credit_applied_cents=credit_applied,
+        amount_due_cents=amount_due,
+        balance_before_cents=balance_before,
+        balance_after_cents=balance_after,
     )
     session.add(invoice)
     session.flush()
+    note_invoice_issued(session, invoice)
 
     for position, item in enumerate(items):
         session.add(
@@ -555,13 +601,27 @@ def mark_invoice_paid(
 
 
 def cancel_invoice(session: Session, invoice: Invoice, *, commit: bool = True) -> Invoice:
-    """Cancel an invoice and release its bookings back to OFFEN."""
+    """Cancel an invoice and release its bookings back to OFFEN.
+
+    The bookings keep the credit they consumed when they were entered, because
+    the balance already reflects it. A cancelled invoice therefore reports no
+    credit of its own - the next invoice that picks the bookings up reports the
+    same figure, so it is never counted twice.
+    """
+    was_open = invoice.status != InvoiceStatus.STORNIERT
     for c in invoice.consumptions:
         c.status = ConsumptionStatus.OFFEN
         c.invoice_id = None
         c.invoiced_at = None
     invoice.status = InvoiceStatus.STORNIERT
     invoice.payment_status = PaymentStatus.STORNIERT
+    invoice.credit_applied_cents = 0
+    invoice.amount_due_cents = 0
+    if was_open:
+        account = get_or_create_account(session, invoice.person, currency=invoice.currency)
+        account.total_invoiced_cents = max(
+            0, int(account.total_invoiced_cents) - int(invoice.total_cents)
+        )
     if commit:
         session.commit()
     return invoice
