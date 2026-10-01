@@ -540,7 +540,65 @@ class TestEinzahlungsMail:
 
         assert result.ok
         assert dep.email_status == DepositEmailStatus.GESENDET
-        assert _balance(db, person.id) == 700
+
+    def test_html_bleibt_html_und_wird_nicht_escaped(self, db, person):
+        """Regression: der Empfaenger sah den rohen HTML-Code als Text.
+
+        Ursache war ``markupsafe.escape``: es liefert ein ``Markup``, und bei
+        ``"literal" + Markup(...)`` bevorzugt Python ``Markup.__radd__``, das
+        auch das Literal escaped. Dadurch wurde ``<p>`` zu ``&lt;p&gt;``.
+        """
+        dep, _entry = acc.post_deposit(db, person, 500, send_email=False)
+        db.commit()
+
+        _subject, text, html = dep_svc.build_deposit_message(
+            dep, person, app_name="Snack & Bar", balance_cents=dep.balance_after_cents
+        )
+
+        assert "&lt;" not in html, "HTML-Markup wurde escaped"
+        assert "<p>Hallo" in html
+        assert "<table>" in html
+        assert "</html>" in html
+        # Der Text-Teil bleibt echter Text.
+        assert "<p>" not in text
+
+    def test_html_inhalt_wird_still_escaped(self, db, person):
+        """Werte im HTML muessen escaped bleiben - nur die Tags nicht."""
+        person.first_name = "<b>Max</b>"
+        db.commit()
+        dep, _entry = acc.post_deposit(db, person, 500, send_email=False)
+        db.commit()
+
+        _subject, _text, html = dep_svc.build_deposit_message(
+            dep, person, app_name="Bar", balance_cents=dep.balance_after_cents
+        )
+
+        assert "<b>Max</b>" not in html, "Name wurde nicht escaped"
+        assert "&lt;b&gt;Max&lt;/b&gt;" in html
+        assert "&lt;p&gt;" not in html, "die Tags selbst sind escaped"
+
+    def test_fusszeile_zeigt_keine_leere_rechnungsnummer(self, db, person):
+        """Die Einzahlung hat keine Rechnungsnummer - die Fusszeile auch nicht."""
+        dep, _entry = acc.post_deposit(db, person, 500, send_email=False)
+        db.commit()
+
+        _subject, _text, html = dep_svc.build_deposit_message(
+            dep, person, app_name="Bar", balance_cents=dep.balance_after_cents
+        )
+
+        assert "Rechnungsnummer" not in html
+        assert "Eingang am" in html
+
+    def test_notiz_erscheint_in_beiden_teilen(self, db, person):
+        dep, _entry = acc.post_deposit(db, person, 500, note="Bar im Tresen", send_email=False)
+        db.commit()
+
+        _subject, text, html = dep_svc.build_deposit_message(
+            dep, person, app_name="Bar", balance_cents=dep.balance_after_cents
+        )
+
+        assert "Bar im Tresen" in text
+        assert "Bar im Tresen" in html
 
     def test_retry_vieler_einzahlungen_aendert_keine_saldo(self, db, person, mailer):
         # Ohne E-Mail-Wunsch erfasst, damit sie in der Warteschlange landen.

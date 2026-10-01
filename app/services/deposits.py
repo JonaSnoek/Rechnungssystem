@@ -21,6 +21,7 @@ import logging
 import time
 from datetime import datetime
 
+from markupsafe import escape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -78,54 +79,80 @@ def build_deposit_message(
         f"Hallo {person.first_name},",
         "",
         f"wir haben am {paid_on} eine Einzahlung von {amount} "
-        f"({payment_label(deposit)}) fuer dich gebucht.",
+        f"({payment_label(deposit)}) für dich gebucht.",
         "",
         f"Kontostand vorher:  {format_cents(int(deposit.balance_before_cents), currency)}",
         f"Einzahlung:         {amount}",
         f"Kontostand jetzt:   {new_balance}",
         "",
         "Die Einzahlung ist damit auf deinem Konto verrechnet und wird bei der",
-        "naechsten Abrechnung automatisch beruecksichtigt.",
+        "nächsten Abrechnung automatisch berücksichtigt.",
         "",
-        f"Viele Gruesse, {app_name}",
+        f"Viele Grüße, {app_name}",
     ]
     if deposit.note:
-        text_lines.insert(5, f"Notiz: {deposit.note}")
+        text_lines.insert(4, f"Notiz: {deposit.note}")
     text = "\n".join(text_lines)
+
+    rows_html = "".join(
+        "<tr>"
+        f"<td>{_escape(label)}</td>"
+        f"<td>{_escape(value)}</td>"
+        "</tr>"
+        for label, value in (
+            ("Kontostand vorher", format_cents(int(deposit.balance_before_cents), currency)),
+            ("Einzahlung", amount),
+            ("Kontostand jetzt", new_balance),
+        )
+    )
+    note_html = (
+        f"<p><strong>Notiz:</strong> {_escape(deposit.note)}</p>" if deposit.note else ""
+    )
 
     html_body = wrap_html_document(
         body=(
             "<p>Hallo "
             + _escape(person.first_name)
             + ",</p>"
-            + f"<p>wir haben am {_escape(paid_on)} eine Einzahlung von "
-            + f"<strong>{_escape(amount)}</strong> ({_escape(payment_label(deposit))}) "
-            + "fuer dich gebucht.</p>"
+            + "<p>wir haben am "
+            + _escape(paid_on)
+            + " eine Einzahlung von <strong>"
+            + _escape(amount)
+            + "</strong> ("
+            + _escape(payment_label(deposit))
+            + ") für dich gebucht.</p>"
+            + note_html
             + "<table>"
-            + "<tr><td>Kontostand vorher</td><td>"
-            + _escape(format_cents(int(deposit.balance_before_cents), currency))
-            + "</td></tr>"
-            + f"<tr><td>Einzahlung</td><td>{_escape(amount)}</td></tr>"
-            + "<tr><td>Kontostand jetzt</td><td><strong>"
-            + _escape(new_balance)
-            + "</strong></td></tr>"
+            + rows_html
             + "</table>"
             + "<p>Die Einzahlung ist auf deinem Konto verrechnet und wird bei der "
-            "naechsten Abrechnung automatisch beruecksichtigt.</p>"
-            + f"<p>Viele Gruesse, {_escape(app_name)}</p>"
+            + "nächsten Abrechnung automatisch berücksichtigt.</p>"
+            + "<p>Viele Grüße, " + _escape(app_name) + "</p>"
         ),
         subject=subject,
         app_name=app_name,
         invoice_number="",
         period=paid_on,
+        # Keine Rechnungsnummer - das Layout würde sonst ein leeres Feld zeigen.
+        footer=f"Eingang am {escape(paid_on)}",
     )
     return subject, text, html_body
 
 
 def _escape(value) -> str:
+    """Escape a value for HTML and return a **plain** ``str``.
+
+    ``str(escape(...))`` matters here. ``markupsafe.escape`` returns a ``Markup``
+    instance, which is a subclass of ``str``. When such a value is combined with
+    a string literal via ``+``, Python prefers the reflected ``Markup.__radd__``
+    of the subclass, and that method escapes its argument - so the literal
+    markup on the left (``"<p>Hallo "``) turned into ``"&lt;p&gt;Hallo "`` and the
+    recipient saw raw HTML as text. Converting to ``str`` first keeps escaping
+    restricted to the inserted values.
+    """
     from markupsafe import escape
 
-    return escape(str(value))
+    return str(escape(str(value)))
 
 
 def send_deposit_confirmation(

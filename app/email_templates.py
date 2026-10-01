@@ -312,7 +312,7 @@ HTML_DOCUMENT = """<!DOCTYPE html>
     </p>
   </td></tr>
   <tr><td style="padding:16px 28px;background:#fafbfc;border-top:1px solid #e3e5e8;font-size:11px;color:#9aa1a9;">
-    Rechnungsnummer {invoice_number} &middot; {period}
+    {footer}
   </td></tr>
 </table>
 </td></tr>
@@ -322,17 +322,30 @@ HTML_DOCUMENT = """<!DOCTYPE html>
 
 
 def wrap_html_document(
-    *, body: str, subject: str, app_name: str, invoice_number: str, period: str
+    *,
+    body: str,
+    subject: str,
+    app_name: str,
+    invoice_number: str,
+    period: str,
+    footer: str | None = None,
 ) -> str:
+    """Put ``body`` into the shared mail layout.
+
+    ``footer`` replaces the default "Rechnungsnummer ... · Datum" line. Mails that
+    are not an invoice - the deposit confirmation, for example - have no invoice
+    number and pass their own line, otherwise the layout would show an empty
+    "Rechnungsnummer" label.
+    """
+    if footer is None:
+        footer = f"Rechnungsnummer {invoice_number} &middot; {period}"
+
     def sub(match: re.Match) -> str:
         return {
             "{subject}": escape(subject),
             "{app_name}": escape(app_name),
             "{body}": body,
-            "{invoice_number}": escape(invoice_number),
-            "{period}": escape(period),
+            "{footer}": footer,
         }[match.group(0)]
 
-    return re.sub(
-        r"\{(subject|app_name|body|invoice_number|period)\}", sub, HTML_DOCUMENT
-    )
+    return re.sub(r"\{(subject|app_name|body|footer)\}", sub, HTML_DOCUMENT)
